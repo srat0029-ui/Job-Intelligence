@@ -203,6 +203,7 @@ def force_analyze_discovered_job(
         discovery_service.promote_and_analyze(db, model)
     except CandidateProfileMissingError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
 
     # Look the specific job up directly by filtering to just its status
     # rather than trusting where it'd land in a large, sorted page.

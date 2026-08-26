@@ -37,7 +37,11 @@ from app.services.priority_service import build_why_summary
 # Statuses hidden from the feed by default - a "rejected"/duplicate job
 # clutters the thing the user actually wants to see (jobs worth acting on),
 # but nothing is deleted; `include_rejected=True` still surfaces them.
-DEFAULT_HIDDEN_STATUSES = [DiscoveredJobStatus.DUPLICATE, DiscoveredJobStatus.PREFILTER_REJECTED]
+DEFAULT_HIDDEN_STATUSES = [
+    DiscoveredJobStatus.DUPLICATE,
+    DiscoveredJobStatus.PREFILTER_REJECTED,
+    DiscoveredJobStatus.ARCHIVED,  # "Not Interested" - hidden, never deleted
+]
 
 
 class OpportunityItem(BaseModel):
@@ -60,6 +64,10 @@ class OpportunityItem(BaseModel):
     application_status: ApplicationStatus | None
     source_url: str | None
     reviewed_at: datetime | None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    currency: str | None = None
+    source: str | None = None
 
 
 class OpportunityPage(BaseModel):
@@ -107,6 +115,11 @@ class OpportunityService:
             min_score=min_score,
             analysed_only=analysed_only,
             reviewed=reviewed,
+            # include_rejected is the existing "show me everything, including
+            # things normally hidden" escape hatch (Advanced/debug views) -
+            # geographically-ineligible postings ride along with it rather
+            # than needing a second flag threaded through every caller.
+            require_eligible_location=not include_rejected,
             sort_by=sort_by,
             descending=descending,
             page=page,
@@ -161,6 +174,10 @@ class OpportunityService:
             application_status=job.application_status if job else None,
             source_url=d.source_url,
             reviewed_at=d.reviewed_at,
+            salary_min=d.salary_min,
+            salary_max=d.salary_max,
+            currency=d.currency,
+            source=d.source.value,
         )
 
     def mark_reviewed(self, db: Session, discovered_job_id: UUID) -> DiscoveredJob | None:

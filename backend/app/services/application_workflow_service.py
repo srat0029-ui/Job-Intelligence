@@ -34,9 +34,11 @@ one logical "generate" call rather than becoming separate stored versions.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from app.ai.providers.base import LLMProvider
+from app.domain.application_pack import ApplicationPack
 from app.domain.application_question import ApplicationQuestionResponse
 from app.domain.application_strategy import ApplicationStrategy
 from app.domain.cover_letter import CoverLetter
@@ -56,6 +58,7 @@ from app.repositories.cv_tailoring_repository import CVTailoringRepository
 from app.repositories.gap_analysis_repository import GapAnalysisRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.research_repository import ResearchRepository
+from app.services.application_brief_service import build_brief
 from app.services.application_question_service import ApplicationQuestionService
 from app.services.application_strategy_service import ApplicationStrategyService
 from app.services.company_research_service import CompanyResearchService, citable_claims
@@ -358,3 +361,63 @@ class ApplicationWorkflowService:
             )
 
         return self._question_repository.save(db, response)
+
+    def prepare_application_pack(
+        self, db, workspace_id: UUID, *, force_refresh: bool = False
+    ) -> ApplicationPack:
+        """The one-click "Prepare Application" entry point - the main
+        product value proposition. Reuses whatever's already been
+        generated for this workspace (strategy, CV tailoring, cover
+        letter) rather than re-running expensive AI operations that aren't
+        necessary; only missing pieces are generated, unless
+        `force_refresh` is set. Never touches research or evidence
+        retrieval directly - those are already reused internally by
+        `prepare_strategy`/`generate_cv_tailoring`/`generate_cover_letter`.
+        """
+        workspace, job, analysis, candidate, _style = self._load_job_context(db, workspace_id)
+
+        strategy = None if force_refresh else self._strategy_repository.get_latest(db, workspace_id)
+        if strategy is None:
+            strategy = self.prepare_strategy(db, workspace_id)
+
+        cv_batch = None if force_refresh else self._cv_repository.get_latest(db, workspace_id)
+        if cv_batch is None:
+            cv_batch = self.generate_cv_tailoring(db, workspace_id)
+
+        cover_letter = (
+            None if force_refresh else self._cover_letter_repository.get_latest(db, workspace_id)
+        )
+        if cover_letter is None:
+            cover_letter = self.generate_cover_letter(db, workspace_id)
+
+        gap_analysis = self._gap_analysis_repository.get(db, strategy.gap_analysis_id)
+        assert gap_analysis is not None  # real FK - always set alongside the strategy
+        evidence_by_id = (
+            {str(e.id): e for e in candidate.evidence if e.id is not None} if candidate else {}
+        )
+        company_name = workspace.research_company_name or job.company
+        research_claims = self._research_repository.list_claims_for_company(db, company_name)
+
+        brief = build_brief(
+            analysis=analysis,
+            strategy=strategy,
+            gap_analysis=gap_analysis,
+            evidence_by_id=evidence_by_id,
+            research_claims=research_claims,
+        )
+
+        return ApplicationPack(
+            workspace_id=workspace_id,
+            job_id=job.id,
+            job_title=job.title,
+            company=job.company,
+            original_url=job.source_url,
+            application_status=job.application_status,
+            brief=brief,
+            cv_suggestions=cv_batch.suggestions,
+            cv_reviewer_result=cv_batch.meta.reviewer_result,
+            cover_letter_body=cover_letter.body,
+            cover_letter_reviewer_result=cover_letter.meta.reviewer_result,
+            cover_letter_reviewer_issues=cover_letter.meta.reviewer_issues,
+            generated_at=datetime.now(UTC),
+        )

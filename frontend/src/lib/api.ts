@@ -6,6 +6,7 @@
 
 import type {
   ApplicationBrief,
+  ApplicationPack,
   ApplicationQuestionResponse,
   ApplicationStatus,
   ApplicationStatusEvent,
@@ -233,6 +234,11 @@ export const api = {
   // --- Application Workspace (Milestone 4A) ---
   getOrCreateWorkspace: (jobId: string) =>
     request<ApplicationWorkspace>(`/api/jobs/${jobId}/workspace`, { method: "POST" }),
+  prepareApplication: (jobId: string, opts: { forceRefresh?: boolean } = {}) =>
+    request<ApplicationPack>(
+      `/api/jobs/${jobId}/prepare-application${query({ force_refresh: opts.forceRefresh })}`,
+      { method: "POST" }
+    ),
   getWorkspaceOverview: (workspaceId: string) =>
     request<WorkspaceOverview>(`/api/application-workspaces/${workspaceId}`),
   updateWorkspaceNotes: (workspaceId: string, notes: string) =>

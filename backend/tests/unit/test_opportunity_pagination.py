@@ -8,7 +8,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_db
-from app.domain.enums import DiscoveredJobStatus, JobSourceType
+from app.domain.enums import DiscoveredJobStatus, GeographicEligibility, JobSourceType
 from app.ingestion.job_source import RawJobPosting
 from app.main import app
 from app.repositories.discovered_job_repository import DiscoveredJobRepository
@@ -22,6 +22,7 @@ def _make_discovered_job(
     posting = RawJobPosting(
         title=title,
         company="Acme",
+        location="Melbourne, VIC",
         source_type=JobSourceType.ADZUNA,
         raw_description=f"{title} description",
         external_id=str(uuid.uuid4()),
@@ -34,6 +35,9 @@ def _make_discovered_job(
         description_fingerprint=deduplication_service.description_fingerprint(posting.raw_description),
         search_profile_id=None,
         discovery_run_id=None,
+        country="AU",
+        geographic_eligibility=GeographicEligibility.ELIGIBLE,
+        geographic_eligibility_reason="Located in Melbourne, VIC, Australia.",
     )
     model.status = status.value
     model.latest_overall_score = score

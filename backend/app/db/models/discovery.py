@@ -60,6 +60,12 @@ class DiscoveredJobModel(Base, UUIDPKMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), default="discovered", index=True)
     prefilter_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    geographic_eligibility: Mapped[str] = mapped_column(
+        String(30), default="location_unconfirmed", index=True
+    )
+    geographic_eligibility_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Deterministic pre-LLM triage score (analysis order only - never fit score).
     analysis_priority: Mapped[float | None] = mapped_column(
         Float, nullable=True, index=True

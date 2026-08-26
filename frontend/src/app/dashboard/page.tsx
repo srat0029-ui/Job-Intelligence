@@ -1,192 +1,167 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { RecommendationBadge, SourceHealthBadge } from "@/components/RecommendationBadge";
-import { Card, EmptyState, ErrorBanner, SectionHeading, Spinner } from "@/components/ui";
-import { api } from "@/lib/api";
-import { formatDateTime, scoreColorClass } from "@/lib/format";
-import type { DashboardStats, DiscoveryDashboardStats, JobListItem, Recommendation } from "@/lib/types";
+import { SimpleJobCard } from "@/components/SimpleJobCard";
+import { Card, EmptyState, ErrorBanner, SecondaryButton, Spinner } from "@/components/ui";
+import { ApiError, api } from "@/lib/api";
+import type { JobPriority, OpportunityItem } from "@/lib/types";
 
-function StatTile({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-zinc-100">{value}</p>
-    </Card>
-  );
-}
+// Hide stretch/low-priority roles from the default view - Part 7/21 of the
+// simplification brief: quality over quantity, no manual filtering needed
+// for the everyday case. "Show more" reveals everything analysed.
+const DEFAULT_VISIBLE_PRIORITIES: JobPriority[] = ["apply_asap", "strong_apply", "apply"];
 
-function JobRow({ item }: { item: JobListItem }) {
-  return (
-    <Link
-      href={`/jobs/${item.id}`}
-      className="flex items-center justify-between gap-4 rounded-lg px-3 py-2.5 transition hover:bg-zinc-800/60"
-    >
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-zinc-200">{item.title}</p>
-        <p className="truncate text-xs text-zinc-500">
-          {item.company}
-          {item.location ? ` · ${item.location}` : ""}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {item.latest_overall_score != null && (
-          <span className={`text-sm font-semibold ${scoreColorClass(item.latest_overall_score)}`}>
-            {item.latest_overall_score.toFixed(0)}
-          </span>
-        )}
-        {item.latest_recommendation && (
-          <RecommendationBadge recommendation={item.latest_recommendation as Recommendation} />
-        )}
-      </div>
-    </Link>
-  );
-}
+const PREPARING_MESSAGES = [
+  "Analysing fit...",
+  "Researching the company...",
+  "Tailoring your application...",
+];
 
-const BUCKET_ORDER = ["80-100", "60-79", "40-59", "20-39", "0-19"];
-
-function ScoreDistribution({ distribution }: { distribution: Record<string, number> }) {
-  const max = Math.max(1, ...Object.values(distribution));
-  return (
-    <div className="space-y-2.5">
-      {BUCKET_ORDER.map((bucket) => {
-        const count = distribution[bucket] ?? 0;
-        return (
-          <div key={bucket} className="flex items-center gap-3">
-            <span className="w-14 shrink-0 text-xs text-zinc-500">{bucket}</span>
-            <div className="h-3 flex-1 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-indigo-500"
-                style={{ width: `${(count / max) * 100}%` }}
-              />
-            </div>
-            <span className="w-6 shrink-0 text-right text-xs text-zinc-400">{count}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DiscoverySummary({ stats }: { stats: DiscoveryDashboardStats }) {
-  return (
-    <Card>
-      <SectionHeading
-        title="Discovery"
-        subtitle="What automated discovery has found and whether it's running on schedule"
-        action={
-          <Link href="/discover" className="text-xs text-indigo-400 hover:underline">
-            Go to Discover ↗
-          </Link>
-        }
-      />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatTile label="New jobs today" value={stats.new_jobs_today} />
-        <StatTile label="High priority, unreviewed" value={stats.high_priority_unreviewed} />
-        <StatTile label="Unread notifications" value={stats.unread_attention_count} />
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Scheduler</p>
-          <p className="mt-2 text-sm font-medium text-zinc-200">
-            {stats.auto_discovery_enabled ? "Enabled" : "Disabled"}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Next run: {formatDateTime(stats.next_scheduled_run_at)}
-          </p>
-        </div>
-      </div>
-
-      {stats.source_health.length > 0 && (
-        <div className="mt-5 border-t border-zinc-800 pt-4">
-          <p className="mb-2 text-xs font-medium text-zinc-500">Source health</p>
-          <div className="flex flex-wrap gap-2">
-            {stats.source_health.map((h) => (
-              <div
-                key={h.source_key}
-                className="flex items-center gap-2 rounded-lg border border-zinc-800 px-3 py-1.5"
-              >
-                <span className="text-xs font-medium text-zinc-300">{h.source_key}</span>
-                <SourceHealthBadge status={h.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [discoveryStats, setDiscoveryStats] = useState<DiscoveryDashboardStats | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export default function HomePage() {
+  const router = useRouter();
+  const [opportunities, setOpportunities] = useState<OpportunityItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [preparingJobId, setPreparingJobId] = useState<string | null>(null);
+  const [preparingMessageIndex, setPreparingMessageIndex] = useState(0);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await api.listOpportunities({
+        sortBy: "score",
+        analysedOnly: true,
+        pageSize: 100,
+      });
+      // Jobs already underway (preparing/applied/interview/...) belong on
+      // the Applications page, not cluttering the "what's new" home feed.
+      setOpportunities(
+        page.items.filter((o) => !o.application_status || o.application_status === "interested")
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load your recommended jobs");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    Promise.all([api.getDashboard(), api.getDiscoveryDashboard()])
-      .then(([s, d]) => {
-        setStats(s);
-        setDiscoveryStats(d);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: initial data load on mount
+    void load();
   }, []);
 
+  useEffect(() => {
+    if (!preparingJobId) return;
+    const interval = setInterval(() => {
+      setPreparingMessageIndex((i) => (i + 1) % PREPARING_MESSAGES.length);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [preparingJobId]);
+
+  async function handlePrepare(item: OpportunityItem) {
+    if (!item.job_id) return;
+    setPreparingJobId(item.discovered_job_id);
+    setPreparingMessageIndex(0);
+    setError(null);
+    try {
+      await Promise.all([
+        api.prepareApplication(item.job_id),
+        api.setApplicationStatus(item.job_id, "applying"),
+      ]);
+      router.push(`/jobs/${item.job_id}/apply`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Failed");
+      setPreparingJobId(null);
+    }
+  }
+
+  async function handleNotInterested(item: OpportunityItem) {
+    try {
+      await api.ignoreOpportunity(item.discovered_job_id);
+      setOpportunities((prev) => prev.filter((o) => o.discovered_job_id !== item.discovered_job_id));
+    } catch {
+      // non-critical - leave the card visible if this fails
+    }
+  }
+
+  const strongMatches = opportunities.filter(
+    (o) => o.priority && DEFAULT_VISIBLE_PRIORITIES.includes(o.priority)
+  );
+  const visible = showAll ? opportunities : strongMatches;
+
   if (loading) return <Spinner />;
-  if (error) return <ErrorBanner message={error} />;
-  if (!stats) return null;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Dashboard</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">My Recommended Jobs</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Your job search at a glance.
+          Australian roles ranked for you - best first.
         </p>
       </div>
 
-      {discoveryStats && <DiscoverySummary stats={discoveryStats} />}
+      {error && <ErrorBanner message={error} />}
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
-        <StatTile label="Jobs tracked" value={stats.total_jobs} />
-        <StatTile label="Analyses run" value={stats.total_analyses} />
-      </div>
+      {preparingJobId && (
+        <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-300">
+          Preparing application... {PREPARING_MESSAGES[preparingMessageIndex]}
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeading title="Strongest opportunities" subtitle="Highest current fit score" />
-          {stats.strongest_opportunities.length === 0 ? (
-            <EmptyState
-              title="No analyses yet"
-              subtitle="Add a job and run an analysis to see it here."
+      {visible.length === 0 && (
+        <EmptyState
+          title={
+            opportunities.length === 0
+              ? "No strong new matches today."
+              : "No strong new matches today."
+          }
+          subtitle={
+            opportunities.length === 0
+              ? "Run discovery from the Discover page (under Advanced) to look for new roles."
+              : "Showing recent opportunities below instead."
+          }
+        />
+      )}
+
+      {visible.length === 0 && opportunities.length > 0 && (
+        <div className="space-y-3">
+          {opportunities.slice(0, 5).map((item) => (
+            <SimpleJobCard
+              key={item.discovered_job_id}
+              item={item}
+              preparing={preparingJobId === item.discovered_job_id}
+              onPrepare={() => handlePrepare(item)}
+              onNotInterested={() => handleNotInterested(item)}
             />
-          ) : (
-            <div className="space-y-1">
-              {stats.strongest_opportunities.map((item) => (
-                <JobRow key={item.id} item={item} />
-              ))}
-            </div>
-          )}
-        </Card>
+          ))}
+        </div>
+      )}
 
-        <Card>
-          <SectionHeading title="Recent analyses" subtitle="Most recently analysed jobs" />
-          {stats.recent_analyses.length === 0 ? (
-            <EmptyState title="Nothing analysed yet" />
-          ) : (
-            <div className="space-y-1">
-              {stats.recent_analyses.map((item) => (
-                <JobRow key={item.id} item={item} />
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
+      {visible.length > 0 && (
+        <div className="space-y-3">
+          {visible.map((item) => (
+            <SimpleJobCard
+              key={item.discovered_job_id}
+              item={item}
+              preparing={preparingJobId === item.discovered_job_id}
+              onPrepare={() => handlePrepare(item)}
+              onNotInterested={() => handleNotInterested(item)}
+            />
+          ))}
+        </div>
+      )}
 
-      <Card>
-        <SectionHeading title="Score distribution" subtitle="Across all analysed jobs" />
-        <ScoreDistribution distribution={stats.score_distribution} />
-      </Card>
+      {!showAll && opportunities.length > strongMatches.length && (
+        <Card className="flex items-center justify-between">
+          <p className="text-sm text-zinc-400">
+            {opportunities.length - strongMatches.length} more lower-priority match(es) hidden.
+          </p>
+          <SecondaryButton onClick={() => setShowAll(true)}>Show more</SecondaryButton>
+        </Card>
+      )}
     </div>
   );
 }

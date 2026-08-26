@@ -55,6 +55,7 @@ from app.domain.enums import (
     DiscoveredJobStatus,
     DiscoveryRunStatus,
     DuplicateMatchStage,
+    GeographicEligibility,
     JobPriority,
     JobSourceType,
 )
@@ -72,7 +73,7 @@ from app.repositories.discovery_run_repository import DiscoveryRunRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.search_profile_repository import SearchProfileRepository
 from app.repositories.source_health_repository import SourceHealthRepository
-from app.services import deduplication_service, search_planner
+from app.services import deduplication_service, location_service, search_planner
 from app.services.analysis_orchestrator import AnalysisOrchestrator, CandidateProfileMissingError
 from app.services.analysis_priority_service import compute_analysis_priority
 from app.services.attention_service import AttentionService
@@ -382,6 +383,12 @@ class DiscoveryService:
             )
             return
 
+        eligibility = location_service.normalize_location(
+            location=posting.location,
+            description=posting.raw_description,
+            remote_type=posting.remote_type,
+        )
+
         fingerprint = deduplication_service.compute_fingerprint(posting)
         desc_fingerprint = deduplication_service.description_fingerprint(posting.raw_description)
         discovered_model = self._discovered_job_repository.create(
@@ -391,8 +398,25 @@ class DiscoveryService:
             description_fingerprint=desc_fingerprint,
             search_profile_id=search_profile_id,
             discovery_run_id=run_id,
+            country=eligibility.country,
+            geographic_eligibility=eligibility.eligibility,
+            geographic_eligibility_reason=eligibility.reason,
         )
         counts.new += 1
+
+        if eligibility.eligibility != GeographicEligibility.ELIGIBLE:
+            # The hard Australia-eligibility gate - checked before, and
+            # independently of, any per-profile preference below. Reuses
+            # the existing PREFILTER_REJECTED status/counts so it's
+            # automatically excluded from both the analysis phase
+            # (list_awaiting_analysis only pulls AWAITING_ANALYSIS) and the
+            # recommended feed (DEFAULT_HIDDEN_STATUSES), with no new
+            # pipeline state to maintain.
+            discovered_model.status = DiscoveredJobStatus.PREFILTER_REJECTED.value
+            discovered_model.prefilter_reason = eligibility.reason
+            counts.prefilter_rejected += 1
+            db.flush()
+            return
 
         prefilter_result = evaluate_prefilter(
             posting=posting, candidate=candidate, search_profile=prefilter_profile

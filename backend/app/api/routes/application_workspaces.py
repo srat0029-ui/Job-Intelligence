@@ -25,6 +25,7 @@ from app.api.schemas import (
     UpdateWorkspaceNotesRequest,
 )
 from app.domain.application_brief import ApplicationBrief
+from app.domain.application_pack import ApplicationPack
 from app.domain.application_question import ApplicationQuestionResponse
 from app.domain.application_strategy import ApplicationStrategy
 from app.domain.application_workspace import ApplicationWorkspace
@@ -74,6 +75,25 @@ def get_or_create_workspace(
     service: ApplicationWorkspaceService = Depends(get_application_workspace_service),
 ) -> ApplicationWorkspace:
     return service.get_or_create_for_job(db, job_id)
+
+
+@jobs_router.post("/{job_id}/prepare-application", response_model=ApplicationPack)
+def prepare_application(
+    job_id: UUID,
+    force_refresh: bool = False,
+    db=Depends(get_db),
+    workspace_service: ApplicationWorkspaceService = Depends(get_application_workspace_service),
+    workflow: ApplicationWorkflowService = Depends(get_application_workflow_service),
+) -> ApplicationPack:
+    """The one-click "Prepare Application" entry point: creates the
+    workspace if needed and returns a single consolidated Application Pack,
+    reusing whatever's already been generated unless force_refresh=true."""
+    workspace = workspace_service.get_or_create_for_job(db, job_id)
+    assert workspace.id is not None  # always set immediately after get_or_create
+    try:
+        return workflow.prepare_application_pack(db, workspace.id, force_refresh=force_refresh)
+    except _WORKFLOW_ERRORS as exc:
+        raise _translate_workflow_errors(exc) from exc
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceOverview)

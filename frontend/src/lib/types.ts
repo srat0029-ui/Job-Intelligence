@@ -330,6 +330,8 @@ export interface JobListItem {
   created_at?: string | null;
   latest_overall_score?: number | null;
   latest_recommendation?: string | null;
+  application_status?: ApplicationStatus | null;
+  source_url?: string | null;
 }
 
 export interface DashboardStats {
@@ -452,6 +454,10 @@ export interface OpportunityItem {
   application_status?: ApplicationStatus | null;
   source_url?: string | null;
   reviewed_at?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  currency?: string | null;
+  source?: string | null;
 }
 
 export interface OpportunityPage {
@@ -738,4 +744,22 @@ export interface WorkspaceTrace {
   workspace_id: string;
   ai_calls: WorkspaceTraceCall[];
   total_estimated_cost_usd: number;
+}
+
+// --- Application Pack (simplified one-click "Prepare Application") ---
+
+export interface ApplicationPack {
+  workspace_id: string;
+  job_id: string;
+  job_title: string;
+  company: string;
+  original_url?: string | null;
+  application_status?: ApplicationStatus | null;
+  brief: ApplicationBrief;
+  cv_suggestions: CVBulletSuggestion[];
+  cv_reviewer_result?: ReviewVerdict | null;
+  cover_letter_body?: string | null;
+  cover_letter_reviewer_result?: ReviewVerdict | null;
+  cover_letter_reviewer_issues: string[];
+  generated_at?: string | null;
 }

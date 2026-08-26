@@ -39,6 +39,8 @@ class _FakeJob:
         self.company = "Acme"
         self.location = None
         self.created_at = None
+        self.application_status = None
+        self.source_url = None
 
 
 class _FakeJobRepository:

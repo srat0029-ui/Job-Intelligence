@@ -34,6 +34,8 @@ class JobListItem(BaseModel):
     created_at: str | None
     latest_overall_score: float | None = None
     latest_recommendation: str | None = None
+    application_status: ApplicationStatus | None = None
+    source_url: str | None = None
 
 
 class DashboardStats(BaseModel):

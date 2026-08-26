@@ -30,6 +30,7 @@ from app.domain.enums import (
     DiscoveredJobStatus,
     DiscoveryRunStatus,
     DuplicateMatchStage,
+    GeographicEligibility,
     JobSourceType,
     SeniorityLevel,
 )
@@ -56,6 +57,14 @@ class DiscoveredJob(BaseModel):
     dedupe_fingerprint: str | None = None
     status: DiscoveredJobStatus = DiscoveredJobStatus.DISCOVERED
     prefilter_reason: str | None = None
+
+    # Hard, deterministic eligibility gate - never a scoring preference.
+    # Computed once per posting regardless of source; see
+    # app/services/location_service.py. Only ELIGIBLE postings ever reach
+    # the recommended feed or get analysed.
+    country: str | None = None
+    geographic_eligibility: GeographicEligibility = GeographicEligibility.LOCATION_UNCONFIRMED
+    geographic_eligibility_reason: str | None = None
     search_profile_id: UUID | None = None
     discovery_run_id: UUID | None = None
     job_id: UUID | None = None  # set once promoted into the `jobs` table

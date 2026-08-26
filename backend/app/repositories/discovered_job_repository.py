@@ -25,7 +25,13 @@ from sqlalchemy.orm import Session
 
 from app.db.models.discovery import DiscoveredJobModel, SourceObservationModel
 from app.domain.discovery import DiscoveredJob, SourceObservation
-from app.domain.enums import DiscoveredJobStatus, DuplicateMatchStage, JobPriority, JobSourceType
+from app.domain.enums import (
+    DiscoveredJobStatus,
+    DuplicateMatchStage,
+    GeographicEligibility,
+    JobPriority,
+    JobSourceType,
+)
 from app.ingestion.job_source import RawJobPosting
 
 SORT_COLUMNS = {
@@ -60,6 +66,9 @@ def _to_domain(model: DiscoveredJobModel) -> DiscoveredJob:
         dedupe_fingerprint=model.dedupe_fingerprint,
         status=DiscoveredJobStatus(model.status),
         prefilter_reason=model.prefilter_reason,
+        country=model.country,
+        geographic_eligibility=GeographicEligibility(model.geographic_eligibility),
+        geographic_eligibility_reason=model.geographic_eligibility_reason,
         search_profile_id=model.search_profile_id,
         discovery_run_id=model.discovery_run_id,
         job_id=model.job_id,
@@ -103,6 +112,9 @@ class DiscoveredJobRepository:
         description_fingerprint: str,
         search_profile_id: UUID | None,
         discovery_run_id: UUID | None,
+        country: str | None = None,
+        geographic_eligibility: GeographicEligibility = GeographicEligibility.LOCATION_UNCONFIRMED,
+        geographic_eligibility_reason: str | None = None,
     ) -> DiscoveredJobModel:
         now = datetime.now(UTC)
         model = DiscoveredJobModel(
@@ -124,6 +136,9 @@ class DiscoveredJobRepository:
             dedupe_fingerprint=fingerprint,
             description_fingerprint=description_fingerprint,
             status=DiscoveredJobStatus.DISCOVERED.value,
+            country=country,
+            geographic_eligibility=geographic_eligibility.value,
+            geographic_eligibility_reason=geographic_eligibility_reason,
             search_profile_id=search_profile_id,
             discovery_run_id=discovery_run_id,
             first_seen_at=now,
@@ -260,6 +275,44 @@ class DiscoveredJobRepository:
         )
         return [_to_domain(m) for m in models]
 
+    def list_all_models(self, db: Session) -> list[DiscoveredJobModel]:
+        """Raw ORM rows, for the location-eligibility backfill script -
+        never used by request-serving code paths."""
+        return list(
+            db.execute(
+                select(DiscoveredJobModel).order_by(DiscoveredJobModel.created_at.asc())
+            ).scalars()
+        )
+
+    def set_geographic_eligibility(
+        self,
+        db: Session,
+        discovered_job_id: UUID,
+        *,
+        country: str | None,
+        geographic_eligibility: GeographicEligibility,
+        geographic_eligibility_reason: str | None,
+        reclassify_status_if_ineligible: bool = True,
+    ) -> None:
+        model = db.get(DiscoveredJobModel, discovered_job_id)
+        if model is None:
+            return
+        model.country = country
+        model.geographic_eligibility = geographic_eligibility.value
+        model.geographic_eligibility_reason = geographic_eligibility_reason
+        reclassifiable_statuses = (
+            DiscoveredJobStatus.DISCOVERED.value,
+            DiscoveredJobStatus.AWAITING_ANALYSIS.value,
+        )
+        if (
+            reclassify_status_if_ineligible
+            and geographic_eligibility != GeographicEligibility.ELIGIBLE
+            and model.status in reclassifiable_statuses
+        ):
+            model.status = DiscoveredJobStatus.PREFILTER_REJECTED.value
+            model.prefilter_reason = geographic_eligibility_reason
+        db.flush()
+
     def list_by_run(self, db: Session, discovery_run_id: UUID) -> list[DiscoveredJob]:
         models = (
             db.execute(
@@ -273,8 +326,14 @@ class DiscoveredJobRepository:
         return [_to_domain(m) for m in models]
 
     def count_created_since(self, db: Session, since: datetime) -> int:
+        """Counts only geographically-eligible postings - "new jobs today"
+        on the home feed should never include jobs that were always going
+        to be hidden."""
         return db.execute(
-            select(func.count()).where(DiscoveredJobModel.created_at >= since)
+            select(func.count()).where(
+                DiscoveredJobModel.created_at >= since,
+                DiscoveredJobModel.geographic_eligibility == GeographicEligibility.ELIGIBLE.value,
+            )
         ).scalar_one()
 
     def count_high_priority_unreviewed(self, db: Session) -> int:
@@ -284,6 +343,7 @@ class DiscoveredJobRepository:
                     [JobPriority.APPLY_ASAP.value, JobPriority.STRONG_APPLY.value]
                 ),
                 DiscoveredJobModel.reviewed_at.is_(None),
+                DiscoveredJobModel.geographic_eligibility == GeographicEligibility.ELIGIBLE.value,
             )
         ).scalar_one()
 
@@ -310,6 +370,7 @@ class DiscoveredJobRepository:
         min_score: float | None,
         analysed_only: bool,
         reviewed: bool | None,
+        require_eligible_location: bool = True,
     ) -> Select:
         if status is not None:
             stmt = stmt.where(DiscoveredJobModel.status == status.value)
@@ -327,6 +388,15 @@ class DiscoveredJobRepository:
             stmt = stmt.where(DiscoveredJobModel.reviewed_at.is_not(None))
         elif reviewed is False:
             stmt = stmt.where(DiscoveredJobModel.reviewed_at.is_(None))
+        if require_eligible_location:
+            # The hard, deterministic Australia-eligibility gate - never a
+            # scoring preference. INELIGIBLE and LOCATION_UNCONFIRMED are
+            # both hidden from the recommended feed by default; pass
+            # require_eligible_location=False (Advanced/debug views only)
+            # to see everything, e.g. for auditing why a job was excluded.
+            stmt = stmt.where(
+                DiscoveredJobModel.geographic_eligibility == GeographicEligibility.ELIGIBLE.value
+            )
         return stmt
 
     def list_paginated(
@@ -339,6 +409,7 @@ class DiscoveredJobRepository:
         min_score: float | None = None,
         analysed_only: bool = False,
         reviewed: bool | None = None,
+        require_eligible_location: bool = True,
         sort_by: str = "score",
         descending: bool = True,
         page: int = 1,
@@ -353,6 +424,7 @@ class DiscoveredJobRepository:
             min_score=min_score,
             analysed_only=analysed_only,
             reviewed=reviewed,
+            require_eligible_location=require_eligible_location,
         )
 
         count_stmt = select(func.count()).select_from(base.subquery())

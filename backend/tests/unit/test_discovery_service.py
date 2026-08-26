@@ -65,6 +65,7 @@ def _posting(title: str, external_id: str, company: str = "Acme") -> RawJobPosti
     return RawJobPosting(
         title=title,
         company=company,
+        location="Melbourne, VIC",
         source_type=JobSourceType.ADZUNA,
         raw_description=f"{title} at {company}. Requires Python. {external_id}-unique-marker.",
         external_id=external_id,

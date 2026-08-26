@@ -61,15 +61,19 @@ export const PRIORITY_CLASSES: Record<JobPriority, string> = {
   low_priority: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30",
 };
 
+// Friendlier product-facing labels over the same backend ApplicationStatus
+// values - a pure copy change, no schema/migration impact. "interested"
+// reads as "Ready to Apply" and "applying" as "Preparing" because that's
+// the mental model the simplified UI uses (see Applications page).
 export const APPLICATION_STATUS_LABEL: Record<ApplicationStatus, string> = {
-  interested: "Interested",
-  applying: "Applying",
+  interested: "Ready to Apply",
+  applying: "Preparing",
   applied: "Applied",
   interview: "Interview",
   rejected: "Rejected",
   offer: "Offer",
   withdrawn: "Withdrawn",
-  ignored: "Ignored",
+  ignored: "Not Interested",
 };
 
 export const APPLICATION_STATUS_OPTIONS: ApplicationStatus[] = [

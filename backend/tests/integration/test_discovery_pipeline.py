@@ -362,3 +362,174 @@ def test_dependency_override_isolation():
     assert get_db not in app.dependency_overrides
     assert get_llm_provider not in app.dependency_overrides
     assert get_discovery_service not in app.dependency_overrides
+
+
+def test_mixed_location_ats_results_only_australian_jobs_survive_to_feed(db):
+    """The required product-simplification scenario: a mixed international
+    ATS feed (the realistic Lever/Greenhouse situation - one company board
+    posting to many countries) must only ever surface its Australian
+    postings in the recommended feed, regardless of source, and regardless
+    of whether the company's watchlist entry configured any location
+    preference at all - the eligibility gate is hard and independent of any
+    per-profile configuration (Part 1/3 of the brief).
+
+    normalisation -> Australian eligibility gate -> discovery -> analysis
+    -> recommendation feed - only Melbourne/Sydney/Hobart survive; San
+    Francisco, London, and a generic "Remote" posting must not appear in
+    the default feed, even though "Remote" isn't confidently foreign
+    either (LOCATION_UNCONFIRMED, not INELIGIBLE - still hidden).
+    """
+    candidate = CandidateRepository().upsert(
+        db,
+        Candidate(
+            name="AU Candidate",
+            evidence=[
+                Evidence(
+                    source_type="project",
+                    source_label="Data Project",
+                    statement="Built data pipelines in Python.",
+                    skill_tags=["python"],
+                )
+            ],
+            preferences=CandidatePreferences(preferred_locations=["Melbourne"]),
+        ),
+    )
+    evidence_id = str(candidate.evidence[0].id)
+
+    # Deliberately NO preferred_locations configured on the watchlist entry -
+    # the old bug: an empty locations list was treated as "no constraint,
+    # accept everything". The hard gate must reject non-AU postings from
+    # this company regardless.
+    CompanyWatchlistRepository().create(
+        db,
+        CompanyWatchlistEntry(
+            company_name="Global Co",
+            ats_type=ATSType.LEVER,
+            ats_identifier="global-co",
+            preferred_locations=[],
+        ),
+    )
+
+    fake_provider = FakeLLMProvider()
+    fake_provider.set_response(
+        AIOperationType.JOB_EXTRACTION,
+        ExtractedJob(
+            title="Graduate Engineer",
+            company="Global Co",
+            requirements=[
+                ExtractedRequirement(
+                    name="Python", raw_phrase="Python",
+                    category="technical_skill", importance="required",
+                )
+            ],
+        ),
+    )
+    fake_provider.set_response(
+        AIOperationType.REQUIREMENT_MATCHING,
+        LLMMatchingOutput(
+            matches=[
+                LLMRequirementMatchItem(
+                    requirement_name="Python", tier=EvidenceTier.EXPLICIT, confidence=0.9,
+                    evidence_ids=[evidence_id], evidence_summary="Directly demonstrated.",
+                )
+            ]
+        ),
+    )
+
+    postings = [
+        RawJobPosting(
+            title="Graduate Software Engineer", company="Global Co", location="Melbourne, VIC",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Join our Melbourne team building payment reconciliation systems in Python "
+                "and PostgreSQL. Work with a small squad on internal tooling for the finance team."
+            ),
+            external_id="melbourne-1",
+        ),
+        RawJobPosting(
+            title="Graduate Data Analyst", company="Global Co", location="Sydney NSW",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Our Sydney analytics team is hiring a graduate to build dashboards and reports "
+                "using SQL and Python, working closely with the marketing department."
+            ),
+            external_id="sydney-1",
+        ),
+        RawJobPosting(
+            title="Graduate DevOps Engineer", company="Global Co", location="Hobart TAS",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Based in Hobart, help automate deployment pipelines with Python scripting and "
+                "container tooling, supporting the wider infrastructure team."
+            ),
+            external_id="hobart-1",
+        ),
+        RawJobPosting(
+            title="Graduate Machine Learning Engineer", company="Global Co",
+            location="San Francisco",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Our San Francisco headquarters is hiring a graduate ML engineer to train "
+                "recommendation models in Python, collaborating with the product research group."
+            ),
+            external_id="sf-1",
+        ),
+        RawJobPosting(
+            title="Graduate Backend Developer", company="Global Co", location="London",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Our London office needs a graduate backend developer to work on billing "
+                "microservices in Python, reporting to the platform engineering lead."
+            ),
+            external_id="london-1",
+        ),
+        RawJobPosting(
+            title="Graduate Support Engineer", company="Global Co", location="Remote",
+            source_type=JobSourceType.LEVER,
+            raw_description=(
+                "Fully remote, open worldwide - provide technical customer support and write "
+                "small Python automation scripts to resolve common support tickets."
+            ),
+            external_id="remote-1",
+        ),
+    ]
+
+    discovery_service = DiscoveryService(
+        llm_provider=fake_provider,
+        adzuna_source_factory=lambda config: _FakeSource([]),
+        ats_source_factory=lambda entry: _FakeSource(postings),
+    )
+
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_llm_provider] = lambda: fake_provider
+    app.dependency_overrides[get_discovery_service] = lambda: discovery_service
+    try:
+        client = TestClient(app)
+
+        run_resp = client.post("/api/discovery/run", json={})
+        assert run_resp.status_code == 200, run_resp.text
+        run = run_resp.json()
+        assert run["counts"]["retrieved"] == 6
+        assert run["counts"]["new"] == 6
+        # SF, London, Remote all rejected by the hard eligibility gate
+        # before ever reaching per-profile pre-filter or analysis.
+        assert run["counts"]["prefilter_rejected"] == 3
+        assert run["counts"]["eligible"] == 3
+        assert run["counts"]["analysed"] == 3
+
+        default_feed = client.get("/api/discovery/opportunities").json()
+        assert default_feed["total"] == 3
+        titles = {item["title"] for item in default_feed["items"]}
+        assert titles == {
+            "Graduate Software Engineer",
+            "Graduate Data Analyst",
+            "Graduate DevOps Engineer",
+        }
+
+        # The excluded postings are still stored (for audit/debugging) -
+        # just correctly classified as geographically ineligible/unconfirmed,
+        # never silently deleted.
+        full_feed = client.get("/api/discovery/opportunities?include_rejected=true").json()
+        assert full_feed["total"] == 6
+    finally:
+        app.dependency_overrides.clear()

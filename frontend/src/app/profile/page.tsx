@@ -47,6 +47,39 @@ const EMPTY_CANDIDATE: Candidate = {
   },
 };
 
+const COMPLETENESS_CHECKS: { label: string; check: (c: Candidate) => boolean }[] = [
+  { label: "Name", check: (c) => c.name.trim().length > 0 },
+  { label: "Education", check: (c) => c.education.length > 0 },
+  { label: "Work history or projects", check: (c) => c.work_history.length > 0 || c.projects.length > 0 },
+  { label: "Skills", check: (c) => c.skills.length > 0 },
+  { label: "Evidence (at least one)", check: (c) => c.evidence.length > 0 },
+  { label: "Preferred locations", check: (c) => c.preferences.preferred_locations.length > 0 },
+  { label: "Work rights", check: (c) => c.preferences.work_rights.length > 0 },
+];
+
+function ProfileCompletenessCard({ candidate }: { candidate: Candidate }) {
+  const missing = COMPLETENESS_CHECKS.filter((item) => !item.check(candidate));
+  const percent = Math.round(
+    ((COMPLETENESS_CHECKS.length - missing.length) / COMPLETENESS_CHECKS.length) * 100
+  );
+
+  if (missing.length === 0) return null;
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-zinc-200">Profile completeness: {percent}%</p>
+        <div className="h-2 w-40 overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+      <p className="mt-2 text-sm text-zinc-400">
+        Missing, and it will meaningfully improve matching: {missing.map((m) => m.label).join(", ")}.
+      </p>
+    </Card>
+  );
+}
+
 function CvImportPanel({
   candidate,
   onMerge,
@@ -194,6 +227,8 @@ export default function ProfilePage() {
       </div>
 
       {error && <ErrorBanner message={error} />}
+
+      <ProfileCompletenessCard candidate={candidate} />
 
       <CvImportPanel
         candidate={candidate}

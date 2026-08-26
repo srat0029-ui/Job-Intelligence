@@ -70,6 +70,8 @@ class DashboardService:
             created_at=job.created_at,
             latest_overall_score=analysis.fit_score.overall_score if analysis else None,
             latest_recommendation=analysis.fit_score.recommendation.value if analysis else None,
+            application_status=job.application_status,
+            source_url=job.source_url,
         )
 
     def get_stats(self, db: Session) -> DashboardStats:

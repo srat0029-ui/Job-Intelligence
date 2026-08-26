@@ -11,6 +11,7 @@ import pytest
 
 from app.ai.providers.fake_provider import FakeLLMProvider
 from app.ai.schemas.application_strategy import LLMApplicationStrategyOutput
+from app.ai.schemas.cover_letter import LLMCoverLetterOutput
 from app.ai.schemas.cv_tailoring import LLMCVBulletSuggestion, LLMCVTailoringOutput
 from app.ai.schemas.grounding_review import LLMGroundingIssue, LLMGroundingReviewOutput
 from app.domain.candidate import Candidate, Evidence
@@ -221,3 +222,66 @@ def test_cv_tailoring_bounded_regeneration_stops_and_marks_needs_review(db):
     from app.services.grounding_reviewer_service import MAX_REGENERATION_ATTEMPTS
 
     assert batch.meta.regeneration_attempt == MAX_REGENERATION_ATTEMPTS + 1
+
+
+def _stub_all_generation_responses(fake_llm: FakeLLMProvider) -> None:
+    fake_llm.set_response(AIOperationType.APPLICATION_STRATEGY, _strategy_response())
+    fake_llm.set_response(AIOperationType.CV_TAILORING, _cv_tailoring_response())
+    fake_llm.set_response(
+        AIOperationType.COVER_LETTER,
+        LLMCoverLetterOutput(body="Dear Hiring Team, ..."),
+    )
+    fake_llm.set_response(
+        AIOperationType.GROUNDING_REVIEW,
+        LLMGroundingReviewOutput(verdict=ReviewVerdict.PASS, issues=[]),
+    )
+
+
+def test_prepare_application_pack_happy_path(db):
+    workspace_id, _evidence = _seed_workspace(db)
+    fake_llm = FakeLLMProvider()
+    _stub_all_generation_responses(fake_llm)
+    workflow = ApplicationWorkflowService(fake_llm, FixtureResearchProvider())
+
+    pack = workflow.prepare_application_pack(db, workspace_id)
+
+    assert pack.job_title == "Backend Engineer"
+    assert pack.cover_letter_body == "Dear Hiring Team, ..."
+    assert len(pack.cv_suggestions) == 1
+    assert pack.brief.why_this_role_fits  # built from the real analysis, non-empty
+
+
+def test_prepare_application_pack_reuses_existing_generation_by_default(db):
+    """Calling prepare twice must not regenerate everything from scratch -
+    the second call should reuse the already-persisted strategy/CV/cover
+    letter rather than making more (expensive) LLM calls."""
+    workspace_id, _evidence = _seed_workspace(db)
+    fake_llm = FakeLLMProvider()
+    _stub_all_generation_responses(fake_llm)
+    workflow = ApplicationWorkflowService(fake_llm, FixtureResearchProvider())
+
+    first = workflow.prepare_application_pack(db, workspace_id)
+    second = workflow.prepare_application_pack(db, workspace_id)
+
+    from app.repositories.application_strategy_repository import ApplicationStrategyRepository
+    from app.repositories.cover_letter_repository import CoverLetterRepository
+    from app.repositories.cv_tailoring_repository import CVTailoringRepository
+
+    assert len(ApplicationStrategyRepository().list_history(db, workspace_id)) == 1
+    assert len(CVTailoringRepository().list_history(db, workspace_id)) == 1
+    assert len(CoverLetterRepository().list_history(db, workspace_id)) == 1
+    assert first.cover_letter_body == second.cover_letter_body
+
+
+def test_prepare_application_pack_force_refresh_regenerates_everything(db):
+    workspace_id, _evidence = _seed_workspace(db)
+    fake_llm = FakeLLMProvider()
+    _stub_all_generation_responses(fake_llm)
+    workflow = ApplicationWorkflowService(fake_llm, FixtureResearchProvider())
+
+    workflow.prepare_application_pack(db, workspace_id)
+    workflow.prepare_application_pack(db, workspace_id, force_refresh=True)
+
+    from app.repositories.application_strategy_repository import ApplicationStrategyRepository
+
+    assert len(ApplicationStrategyRepository().list_history(db, workspace_id)) == 2

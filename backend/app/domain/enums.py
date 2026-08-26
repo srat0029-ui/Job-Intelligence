@@ -319,3 +319,20 @@ class CVSection(str, Enum):
     PROJECT = "project"
     SKILL = "skill"
     CERTIFICATION = "certification"
+
+
+class GeographicEligibility(str, Enum):
+    """A hard, deterministic eligibility gate - NOT a scoring preference.
+
+    Computed once per posting (see app/services/location_service.py) right
+    after source normalisation, identically regardless of source (Adzuna,
+    Lever, Greenhouse, any future adapter). Only ELIGIBLE postings ever
+    reach the recommended feed or get analysed - see
+    DiscoveryService._process_posting. INELIGIBLE and LOCATION_UNCONFIRMED
+    are kept distinct so a "confidently overseas" posting can be told apart
+    from a genuinely ambiguous one during debugging, even though both are
+    hidden from the default feed the same way."""
+
+    ELIGIBLE = "eligible"
+    INELIGIBLE = "ineligible"
+    LOCATION_UNCONFIRMED = "location_unconfirmed"
