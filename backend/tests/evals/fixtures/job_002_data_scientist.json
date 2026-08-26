@@ -1,0 +1,9 @@
+{
+  "title": "Data Scientist - Sports Analytics",
+  "company": "Fixture Analytics",
+  "location": "Remote (Australia)",
+  "raw_description": "Join our sports analytics team as a Data Scientist. Essential: strong Python skills and hands-on experience with scikit-learn and statistical modelling (regression, time series, or similar). You should be comfortable building and evaluating predictive models, including backtesting against historical data. Experience with statsmodels is a strong plus. Knowledge of sports betting markets or bookmaker odds is highly desirable but not required. Some frontend exposure (React/TypeScript) to help visualise model output would be nice to have. A degree in statistics, mathematics, computer science or a related quantitative field is required.",
+  "expected_required_skills": ["Python", "scikit-learn", "statistical modelling"],
+  "expected_preferred_skills": ["statsmodels", "React", "TypeScript"],
+  "expected_role_category_keywords": ["data", "scien", "analytics"]
+}

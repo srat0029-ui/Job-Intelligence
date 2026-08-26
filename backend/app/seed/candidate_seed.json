@@ -1,0 +1,109 @@
+{
+  "name": "Your Name",
+  "email": "samvrathore@gmail.com",
+  "summary": "Placeholder profile seeded with known project history. Edit via the Profile page (PUT /api/candidate) or update this file and re-run `python scripts/seed.py`, then eventually replace with a parsed CV.",
+  "strengths": [
+    "Full-stack application development",
+    "Applied predictive modelling and statistical evaluation",
+    "Rapid adaptation when external dependencies fail"
+  ],
+  "education": [],
+  "work_history": [],
+  "skills": [
+    { "name": "Python", "category": "language", "aliases": [], "proficiency": "proficient" },
+    { "name": "TypeScript", "category": "language", "aliases": ["TS"], "proficiency": "proficient" },
+    { "name": "FastAPI", "category": "framework", "aliases": [], "proficiency": "proficient" },
+    { "name": "SQLAlchemy", "category": "framework", "aliases": [], "proficiency": "proficient" },
+    { "name": "React", "category": "framework", "aliases": [], "proficiency": "proficient" },
+    { "name": "scikit-learn", "category": "tool", "aliases": ["sklearn"], "proficiency": "proficient" },
+    { "name": "statsmodels", "category": "tool", "aliases": [], "proficiency": "familiar" },
+    { "name": "Predictive Modelling", "category": "domain", "aliases": [], "proficiency": "proficient" },
+    { "name": "REST APIs", "category": "domain", "aliases": ["REST API design"], "proficiency": "proficient" },
+    { "name": "Geospatial Data", "category": "domain", "aliases": [], "proficiency": "familiar" }
+  ],
+  "projects": [
+    {
+      "name": "AFL Pricing & Market Intelligence Engine",
+      "description": "A solo full-stack sports analytics platform that predicts AFL match and player outcomes and compares model output against bookmaker odds.",
+      "technologies": ["Python", "FastAPI", "SQLAlchemy", "scikit-learn", "statsmodels", "React", "TypeScript"],
+      "github_url": "https://github.com/srat0029-ui/AFL",
+      "highlights": [
+        "Built Elo and Poisson models for team and player outcome prediction",
+        "Implemented ridge regression models for continuous outcome prediction",
+        "Designed leakage-safe walk-forward evaluation to avoid look-ahead bias in backtests",
+        "Built automated data pipelines with external API integrations, including bookmaker odds ingestion",
+        "Persisted model outputs and pipeline data in a relational database",
+        "Evaluated models with Brier scores, MAE and RMSE across backtesting and prospective tracking",
+        "Exposed model outputs via REST APIs consumed by a React/TypeScript frontend",
+        "Delivered a complete full-stack application end to end, solo"
+      ]
+    },
+    {
+      "name": "HushNav",
+      "description": "A university team project focused on routing over geospatial data with third-party API integrations.",
+      "technologies": ["Routing", "Geospatial APIs", "Frontend", "Analytics"],
+      "github_url": "https://github.com/cassandra-l/hushnav",
+      "highlights": [
+        "Implemented routing logic over geospatial data",
+        "Integrated third-party mapping/routing APIs",
+        "Built frontend views for route and analytics display",
+        "Rapidly redesigned the integration when an external API failed mid-project",
+        "Collaborated as part of a team under time pressure"
+      ]
+    }
+  ],
+  "achievements": [],
+  "evidence": [
+    {
+      "source_type": "project",
+      "source_label": "AFL Pricing & Market Intelligence Engine",
+      "statement": "Built predictive models (Elo, Poisson, ridge regression) in Python for AFL team and player outcomes.",
+      "skill_tags": ["Python", "predictive modelling", "machine learning", "statistics", "scikit-learn", "statsmodels"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "AFL Pricing & Market Intelligence Engine",
+      "statement": "Designed leakage-safe, walk-forward backtesting and prospective tracking to evaluate model performance over time using Brier score, MAE and RMSE.",
+      "skill_tags": ["backtesting", "model evaluation", "statistics", "data science", "python"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "AFL Pricing & Market Intelligence Engine",
+      "statement": "Built automated data pipelines that ingest external data, including bookmaker odds, and persist it to a relational database.",
+      "skill_tags": ["data engineering", "data pipelines", "sql", "sqlalchemy", "api integration", "database"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "AFL Pricing & Market Intelligence Engine",
+      "statement": "Built and served a REST API with FastAPI and SQLAlchemy backing a React/TypeScript frontend, as a solo full-stack build.",
+      "skill_tags": ["fastapi", "rest api", "backend", "react", "typescript", "full-stack", "sqlalchemy"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "HushNav",
+      "statement": "Implemented routing logic and integrated third-party geospatial/mapping APIs as part of a university team project.",
+      "skill_tags": ["routing", "geospatial data", "api integration", "algorithms"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "HushNav",
+      "statement": "Built frontend views for analytics and route display, and collaborated within a team.",
+      "skill_tags": ["frontend", "analytics", "teamwork", "collaboration"]
+    },
+    {
+      "source_type": "project",
+      "source_label": "HushNav",
+      "statement": "Rapidly redesigned the integration approach when a relied-upon external API failed during the project.",
+      "skill_tags": ["adaptability", "problem solving", "api integration"]
+    }
+  ],
+  "preferences": {
+    "preferred_job_categories": [],
+    "preferred_locations": [],
+    "work_rights": [],
+    "salary_expectation_min": null,
+    "salary_expectation_max": null,
+    "salary_currency": "AUD",
+    "remote_preference": null
+  }
+}

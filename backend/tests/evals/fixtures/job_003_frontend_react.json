@@ -1,0 +1,9 @@
+{
+  "title": "Frontend Engineer",
+  "company": "Fixture Frontend Studio",
+  "location": "Sydney, NSW (Hybrid)",
+  "raw_description": "We're hiring a Frontend Engineer to build customer-facing dashboards. Must have strong TypeScript and React experience, including hooks and state management. You'll work closely with backend engineers consuming REST APIs, so comfort reading FastAPI/OpenAPI schemas is expected. Experience with data visualisation libraries is required. Exposure to geospatial or mapping APIs is a bonus given some of our routing features. No specific degree required - we care about a strong portfolio or GitHub history. Applicants must be able to work on-site in Sydney at least 3 days a week.",
+  "expected_required_skills": ["TypeScript", "React", "data visualisation"],
+  "expected_preferred_skills": ["geospatial", "mapping"],
+  "expected_role_category_keywords": ["frontend", "engineer"]
+}

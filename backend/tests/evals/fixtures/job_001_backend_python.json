@@ -1,0 +1,9 @@
+{
+  "title": "Backend Software Engineer",
+  "company": "Fixture Co",
+  "location": "Melbourne, VIC",
+  "raw_description": "We are looking for a Backend Software Engineer to join our small platform team. You must have at least 3 years of professional experience with Python and have shipped production REST APIs. Strong SQL skills and experience with FastAPI or a comparable framework are essential. You'll design and maintain services backed by PostgreSQL. Experience with Docker is required for our containerised deployment pipeline. Familiarity with React is a bonus if you want to help out on the frontend occasionally, but is not required. A degree in Computer Science or a related field is preferred but not mandatory - we care more about demonstrated ability. Must have full working rights in Australia.",
+  "expected_required_skills": ["Python", "SQL", "FastAPI", "Docker"],
+  "expected_preferred_skills": ["React"],
+  "expected_role_category_keywords": ["backend", "engineer", "software"]
+}
