@@ -445,7 +445,6 @@ export default function DiscoverPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset to page 1 when filters change
     setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy, showRejected, reviewedFilter]);
 
   async function handleRunDiscovery() {

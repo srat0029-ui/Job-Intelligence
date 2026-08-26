@@ -2,9 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { Field, TextInput } from "@/components/form";
-import { Card, ErrorBanner, PrimaryButton, SectionHeading, Spinner } from "@/components/ui";
-import { api } from "@/lib/api";
-import { categoryLabel } from "@/lib/format";
+import {
+  Card,
+  ErrorBanner,
+  PrimaryButton,
+  SecondaryButton,
+  SectionHeading,
+  Spinner,
+} from "@/components/ui";
+import { ApiError, api } from "@/lib/api";
+import { categoryLabel, formatDateTime } from "@/lib/format";
 import type { AppSettings, CostSummary } from "@/lib/types";
 
 interface SettingsInfo {
@@ -23,6 +30,8 @@ function CostControlsCard() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runningNow, setRunningNow] = useState(false);
+  const [runNowMessage, setRunNowMessage] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([api.getDiscoverySettings(), api.getCostSummary()])
@@ -49,13 +58,35 @@ function CostControlsCard() {
     }
   }
 
+  async function handleRunNow() {
+    setRunningNow(true);
+    setRunNowMessage(null);
+    setError(null);
+    try {
+      const run = await api.runDiscovery();
+      setRunNowMessage(
+        `Started - ${run.counts.retrieved} retrieved, ${run.counts.new} new, ${run.counts.analysed} analysed.`
+      );
+      const refreshed = await api.getDiscoverySettings();
+      setSettings(refreshed);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(e.detail);
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to run discovery");
+      }
+    } finally {
+      setRunningNow(false);
+    }
+  }
+
   if (!settings) return null;
 
   return (
     <Card>
       <SectionHeading
-        title="AI cost controls"
-        subtitle="Governs the automated analysis phase of a discovery run. Manually forcing analysis of one job always bypasses these."
+        title="AI cost & discovery scheduling controls"
+        subtitle="Governs the automated analysis phase and automatic scheduling of discovery runs. Manually forcing analysis of one job always bypasses these."
         action={
           <div className="flex items-center gap-3">
             {saved && <span className="text-sm text-emerald-400">Saved</span>}
@@ -118,6 +149,56 @@ function CostControlsCard() {
           </div>
         </dl>
       )}
+
+      <div className="mt-5 border-t border-zinc-800 pt-4">
+        <label className="mb-4 flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={settings.auto_discovery_enabled}
+            onChange={(e) =>
+              setSettings({ ...settings, auto_discovery_enabled: e.target.checked })
+            }
+          />
+          Automatically run discovery on a schedule
+        </label>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Frequency (hours between runs)">
+            <TextInput
+              value={String(settings.discovery_frequency_hours)}
+              onChange={(v) =>
+                setSettings({ ...settings, discovery_frequency_hours: Number(v) || 1 })
+              }
+            />
+          </Field>
+          <Field label="Max postings fetched per source per run">
+            <TextInput
+              value={String(settings.max_postings_per_source_per_run)}
+              onChange={(v) =>
+                setSettings({ ...settings, max_postings_per_source_per_run: Number(v) || 1 })
+              }
+            />
+          </Field>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <dt className="text-xs text-zinc-500">Last scheduled run</dt>
+            <dd className="text-zinc-200">{formatDateTime(settings.last_scheduled_run_at)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-zinc-500">Next scheduled run</dt>
+            <dd className="text-zinc-200">{formatDateTime(settings.next_scheduled_run_at)}</dd>
+          </div>
+        </dl>
+
+        <div className="mt-4 flex items-center gap-3">
+          <SecondaryButton onClick={handleRunNow} disabled={runningNow}>
+            {runningNow ? "Running..." : "Run discovery now"}
+          </SecondaryButton>
+          {runNowMessage && <span className="text-sm text-zinc-400">{runNowMessage}</span>}
+        </div>
+      </div>
     </Card>
   );
 }

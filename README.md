@@ -4,9 +4,11 @@ An AI-powered job search command centre: maintain a candidate profile, discover 
 jobs, run AI extraction + evidence-based matching, get an explainable fit score, and see a
 ranked, prioritised feed of opportunities.
 
-This document covers both the V1 foundation (manual analysis) and Milestone 2 (automated
-discovery, deduplication, pre-filtering, cost controls). See
-[Incomplete / deferred](#incomplete--deferred) for what's intentionally not built yet.
+This document covers the V1 foundation (manual analysis), Milestone 2 (automated discovery,
+deduplication, pre-filtering, cost controls), and Milestone 3 (autonomous discovery: company
+watchlists, fuzzy multi-source deduplication, scheduling, analysis prioritisation, source health,
+attention/notifications). See [Incomplete / deferred](#incomplete--deferred) for what's
+intentionally not built yet.
 
 ## Architecture
 
@@ -22,10 +24,13 @@ backend/
       providers/  LLMProvider interface + AnthropicProvider + FakeLLMProvider (tests/dev)
       prompts/    Versioned prompt modules (extraction_v1, matching_v1, cv_extraction_v1)
       schemas/    Typed structured-output contracts for the LLM
-    ingestion/     JobSource (ManualJobSource, AdzunaJobSource) + CandidateDocumentSource
-                   (SeedFileCandidateSource, ResumeFileSource) adapters
+    ingestion/     JobSource (ManualJobSource, AdzunaJobSource, LeverJobSource,
+                   GreenhouseJobSource) + CandidateDocumentSource (SeedFileCandidateSource,
+                   ResumeFileSource) adapters
     services/      Business logic: extraction, matching, scoring, orchestration, discovery,
-                   deduplication, pre-filter, priority classification, dashboard
+                   deduplication (exact + fuzzy), pre-filter, analysis-priority scoring,
+                   priority classification, source health, attention/notifications, scheduling,
+                   dashboard
     api/           Thin FastAPI routers - no business logic lives here
   tests/
     unit/         Pure-logic tests (scoring, matching guardrails, prefilter, dedup, discovery
@@ -230,6 +235,222 @@ outcome data exists, a future milestone can compare `FitScore` component values 
 is shaped for that today, but no calibration logic exists yet (there isn't enough outcome data
 to calibrate against).
 
+## Milestone 3: autonomous discovery
+
+Turns the manual-trigger discovery of Milestone 2 into something that runs itself: it watches
+specific employers directly (not just broad job-board search), catches the same job posted
+across multiple sources without ever merging two genuinely different roles, prioritises its own
+limited AI budget toward the postings actually worth spending it on, runs on a schedule without
+needing a human to remember, and surfaces its own health/failures instead of failing silently.
+
+### 1. Broad discovery vs. direct-employer discovery
+
+Two structurally different ways of finding jobs, both feeding the same pipeline downstream:
+
+- **Broad discovery** (`AdzunaJobSource`, unchanged from M2) - a keyword/location search across
+  an aggregator. High recall, but everything is filtered through someone else's index, and
+  postings can be stale, re-posted by recruiters, or missing entirely if the aggregator hasn't
+  indexed a company yet.
+- **Direct-employer discovery** (new: `LeverJobSource`, `GreenhouseJobSource`) - reads a specific
+  company's own public postings feed. Higher precision (it's the employer's own listing) and
+  often fresher, but only covers companies you've explicitly told the system to watch.
+
+Both run in the same `DiscoveryService.run()` call and feed the same dedup -> pre-filter ->
+analysis pipeline; a job found by either path becomes an identical `DiscoveredJob` row. Source
+type only ever affects *provenance and canonical-field promotion* (see topic 3) - never fit
+score.
+
+### 2. Why Lever/Greenhouse are company-scoped, not global search
+
+Lever and Greenhouse's public APIs (`api.lever.co/v0/postings/{site}`,
+`boards-api.greenhouse.io/v1/boards/{token}`) are **per-tenant** - there is no "search all
+companies on Lever" endpoint, unlike Adzuna's aggregated index. So `CompanyWatchlist`
+(`app/domain/company_watchlist.py`) exists as the thing a user explicitly curates: one row per
+company, holding which ATS it uses and that ATS's identifier for this company
+(`ats_type` + `ats_identifier`), a priority, preferred locations, and enabled/disabled.
+`DiscoveryService._discover_via_watchlist_entry()` builds one `JobSource` per *enabled* watchlist
+entry via `_build_ats_source()`, which is the **only** place that switches on `ATSType` - the
+orchestrator itself stays entirely source-agnostic. Adding a third ATS is one new
+`JobSource` implementation plus one `if` branch there; nothing about `DiscoveryService.run()`,
+dedup, pre-filter, or the UI changes.
+
+### 3. Deduplication: exact/deterministic, then fuzzy - never an LLM
+
+`app/services/deduplication_service.py` runs in three stages, in order of confidence, and stops
+at the first match:
+
+1. **Exact ID/URL** - same source + `external_id`, or the same canonical URL (query
+   string/fragment/trailing slash stripped) - checked first against every prior
+   `SourceObservation` (not just the canonical row), so a job already seen via Adzuna is
+   recognised the instant the *same* URL/ID shows up again via a company's own Lever feed.
+2. **Deterministic fingerprint** - SHA-256 of normalised `(company, title, location)`, and
+   separately of normalised description text - catches the same role reposted with a different
+   URL/ID but byte-identical (post-normalisation) content.
+3. **Fuzzy** (new) - word-token Jaccard similarity (`_word_tokens` + `_jaccard`) across title
+   *and* description, gated hard by exact company match and a
+   `FUZZY_CANDIDATE_DATE_WINDOW_DAYS = 21` posting-date window, so comparison is always bounded
+   to a small, plausible candidate set - **never O(n²) over the whole table.** A weighted score
+   (`TITLE_SIMILARITY_WEIGHT=0.15`, `DESCRIPTION_SIMILARITY_WEIGHT=0.70`,
+   `DATE_PROXIMITY_WEIGHT=0.15`) must clear `AUTO_MERGE_THRESHOLD=0.60`, **and** title similarity
+   alone must clear `MIN_TITLE_TOKEN_SIMILARITY=0.15` - a hard floor specifically so two
+   different roles at the same company (e.g. "Data Analyst" vs. "Marketing Coordinator") can
+   never merge purely on a similar-sounding description. Every fuzzy match records its stage,
+   confidence, and a human-readable reason on the new `match_stage`/`match_confidence`/
+   `match_reason` fields of `SourceObservation`, so a merge decision is always auditable, never a
+   black box.
+
+An LLM is never involved in any of this. Two reasons: (1) an LLM's judgement of "same job?" is
+neither deterministic nor auditable at the confidence level a merge decision needs, and (2)
+calling one per candidate-pair comparison would be both slow and another real-money cost for a
+purely structural decision that string similarity answers reliably. The three stages are
+calibrated (see `deduplication_service.py`'s module docstring and
+`tests/unit/test_fuzzy_deduplication.py`) to prefer a **false negative** (two observations of the
+same job stay as separate `DiscoveredJob` rows) over a **false positive** (two different roles
+silently merged) - a missed merge just means the same job shows up twice in the feed; a wrongful
+merge would hide a real, different opportunity and corrupt the audit trail permanently.
+
+Nothing is ever discarded on a match: the existing canonical `DiscoveredJob` gets a new
+`SourceObservation` row (source, external_id, URL, match stage/confidence/reason, first/last
+seen, times seen) rather than being duplicated or overwritten - see
+`tests/integration/test_discovery_pipeline.py::test_multi_source_dedup_and_shortlist` for the
+full "same job via Adzuna and Lever, plus one genuinely different Lever job" scenario end to end.
+
+### 4. Source quality and canonical-field promotion
+
+`SOURCE_QUALITY_RANK` (`deduplication_service.py`) ranks `manual < adzuna < lever == greenhouse`
+- a direct-employer feed outranks an aggregator. When a new observation of an already-known job
+comes from a higher-ranked source, `maybe_promote_canonical_fields()` updates the canonical
+row's *presentation* fields only (title text, company text, URL) to the higher-quality source's
+version - e.g. preferring the employer's own posting URL over an aggregator's redirect link.
+This **never** touches `analysis_priority`, `latest_overall_score`, `latest_recommendation`, or
+anything scoring-related - source quality is strictly a display/provenance concern, enforced by
+which fields `maybe_promote_canonical_fields()` is allowed to write.
+
+### 5. Analysis priority vs. fit score - two scores, never conflated
+
+- **`analysis_priority`** (`app/services/analysis_priority_service.py`) - deterministic,
+  computed **before** any LLM call, from free signals only: early-career title keywords (boost),
+  senior title keywords / explicit high years-of-experience phrases (penalty), posting recency,
+  location-priority match (from `SearchProfile.location_priority`), direct-employer source
+  (small boost over aggregator), and **`CompanyWatchlistEntry.priority`** (High/Normal/Low -
+  boosts or penalises). Clamped 0-100. Its only job is to decide *analysis order* when the AI
+  budget for a run can't cover every eligible posting.
+- **Fit score / `Recommendation` / `JobPriority`** - unchanged from M1/M2: entirely post-LLM,
+  evidence-grounded, computed by the existing `ScoringService` from fixed named weights. Company
+  watchlist priority, source type, and posting recency have **zero** influence on this number.
+
+The domain models keep the two fields physically separate (`DiscoveredJob.analysis_priority` vs.
+`latest_overall_score`/`latest_recommendation`/`latest_priority`) and the UI labels them
+distinctly (Companies page: *"Priority here boosts analysis order only - it never changes the
+candidate fit score"*) specifically so this distinction can't quietly blur over time.
+
+### 6. Scheduling: in-process `BackgroundScheduler`, not a worker queue or bare cron
+
+`app/scheduler.py` runs an APScheduler `BackgroundScheduler` inside the same FastAPI process,
+wired into `main.py`'s lifespan (`start_scheduler()`/`stop_scheduler()`), ticking every
+`CHECK_INTERVAL_MINUTES = 15` to ask "is a run due yet?" (`AppSettings.next_scheduled_run_at`),
+rather than scheduling discovery directly at its configured frequency.
+
+**Why this over the alternatives, at this project's actual scale (a single-user tool running a
+few times a day):**
+
+| Approach | Trade-off |
+|---|---|
+| **In-process `BackgroundScheduler`** (chosen) | Zero extra infrastructure; "next run" / enable-disable are just DB fields the API already exposes. Scheduling state lives only in this process's memory - a restart re-derives "is it due" from Postgres, so nothing is lost, but it isn't a real distributed lock: two instances of this process would each independently decide "it's due" (limited by `DiscoveryService.run()` refusing a second concurrent run - see topic 7 - to "ran twice," not corruption). |
+| Dedicated worker (Celery/RQ + Redis) | Real infrastructure (a broker, a second deployable, ops surface) that buys retry/backoff semantics and multi-instance safety this project doesn't need yet. |
+| Bare OS cron + `scripts/run_discovery.py` | No extra infrastructure, and still fully supported (the documented upgrade path) - but needs OS-level configuration outside the app, and can't expose "next scheduled run"/toggle through the API the way the in-process scheduler does. |
+
+The tick itself (`run_scheduled_discovery_if_due()`) is a small, independently testable function
+(not a bare lambda inside `add_job`) specifically so `tests/unit/test_scheduler.py` can call it
+directly - due/not-due, enabled/disabled, and the already-running case - without spinning up a
+real scheduler thread.
+
+### 7. Failure isolation and automation safety
+
+Every layer that could fail during an unattended run is isolated so one bad source, job, or
+budget overrun degrades gracefully rather than aborting the whole run:
+
+- **Overlap prevention** - `DiscoveryService.run()` checks
+  `DiscoveryRunRepository.get_running()` first and raises `DiscoveryAlreadyRunningError` rather
+  than starting a second concurrent run; the scheduler tick catches this and just logs a skip.
+- **Per-source failure isolation** - `fetch_with_health_tracking()`
+  (`app/services/source_health_service.py`) wraps every source's `fetch()` call, catching any
+  exception, recording it against that source's `SourceHealth` row, and returning an empty list
+  rather than raising - one source being down (a bad Lever slug, a network blip) never stops
+  discovery from running the rest.
+- **Per-job failure isolation** - a single posting's normalisation/analysis exception is caught,
+  counted in `DiscoveryRunCounts.failed`, and an `AttentionItem` is raised once failures cross
+  `ANALYSIS_FAILURE_ATTENTION_THRESHOLD`; the run continues processing the remaining postings.
+- **Bounded fetch/AI caps** - `max_postings_per_source_per_run` bounds how much any one source
+  can flood a single run; `max_ai_analyses_per_run` and `daily_ai_analysis_budget_usd` bound
+  spend (see topic 8) - jobs past either limit are marked `awaiting_analysis` ("deferred"), never
+  silently dropped or force-failed. Verified live: a real run against Palantir's public Lever
+  feed with the cap set to 1 retrieved 100 postings, found 63 new, analysed exactly 1, and
+  correctly deferred the other 62 rather than erroring (see the Milestone 3 verification section
+  below).
+- **Instant scheduler disable** - `AppSettings.auto_discovery_enabled` is checked first thing in
+  every tick; flipping it off in Settings takes effect on the very next 15-minute check, no
+  restart needed.
+
+### 8. Cost controls (extended from M2)
+
+Unchanged from M2 (`auto_ai_analysis_enabled`, `max_ai_analyses_per_run`,
+`daily_ai_analysis_budget_usd`) plus, new in M3: `max_postings_per_source_per_run` (caps fetch
+volume per source, independent of AI spend) and the scheduling fields
+(`auto_discovery_enabled`, `discovery_frequency_hours`). All are one live `AppSettings` row,
+editable from **Settings** with no restart required. `DiscoveryRunCounts` now also tracks
+`ai_calls`/`ai_input_tokens`/`ai_output_tokens` per run (visible on the Discovery Run detail
+page) alongside the existing `estimated_cost_usd`, so a budget-constrained run's actual spend is
+fully auditable after the fact, not just capped in advance.
+
+### 9. Source health monitoring
+
+`SourceHealth` (`app/domain/source_health.py`, one row per `source_key` - `"adzuna"` or
+`"lever:<slug>"`/`"greenhouse:<slug>"` per watchlisted company) tracks status
+(`healthy`/`degraded`/`error`/`unknown`), last attempt/success timestamps, consecutive failures,
+a coarse `last_error_category` (the exception's class name, e.g. `ConnectionError` -
+**never** a raw stack trace or exception message, so nothing sensitive or overly implementation-
+specific leaks into the UI), jobs retrieved last run, and average latency.
+`fetch_with_health_tracking()` is the single place every source's health is updated, shared by
+Adzuna and every watchlist entry, so there's one source of truth rather than parallel bookkeeping
+per source type. Surfaced on the Dashboard (compact badges) and the Companies page (inline per
+watchlist entry, matched by `CompanyWatchlistEntry.source_key`).
+
+### 10. Avoiding reprocessing without permanently losing jobs on transient failure
+
+Two independent mechanisms, deliberately not one:
+
+- **Deduplication is the primary watermark.** Because dedup checks `SourceObservation` rows
+  first (stage 1: exact ID/URL against *every* prior observation, not just the canonical row), a
+  posting seen in a previous run is recognised as a duplicate on every later run - there's no
+  separate "last processed timestamp" cursor to fall behind or corrupt. If a fetch fails
+  entirely (see topic 7), nothing was marked as seen, so those postings are naturally retried
+  the next run rather than being permanently skipped - the "watermark" is just "have I already
+  created an observation for this ID/URL/fingerprint," which self-corrects after any transient
+  failure with no separate recovery logic needed.
+- **`analysis_priority` + budget caps decide what's worth analysing when there's a backlog** -
+  a burst of new postings after a source outage doesn't get silently dropped; everything above
+  the pre-filter is created as a `DiscoveredJob` and analysed in priority order across as many
+  runs as it takes to clear the `awaiting_analysis` backlog.
+
+### Milestone 3 verification (real, not mocked)
+
+Live Adzuna credentials were not available in this environment (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`
+are unset in `backend/.env` - only `ADZUNA_COUNTRY` is set), so Adzuna validation is deferred, as
+in Milestone 2. A real `ANTHROPIC_API_KEY` **was** configured, so the Lever integration and the
+whole autonomous-discovery pipeline were verified against **live, real data** instead: a
+temporary `CompanyWatchlist` entry against Palantir's real public Lever board
+(`api.lever.co/v0/postings/palantir`), with `max_ai_analyses_per_run` deliberately capped to `1`
+for the duration of the test (restored to its normal value afterward) to keep it a controlled,
+bounded-cost test rather than a bulk analysis run. Result: 100 postings retrieved (capped by
+`max_postings_per_source_per_run`), 63 recognised as new, 37 correctly recognised as duplicates
+(Palantir posts near-identical roles across many regional variants), 1 analysed with a real,
+evidence-grounded fit score and gap, the other 62 correctly deferred by the AI cap rather than
+failing the run, and accurate token/cost accounting (`$0.0672` for 2 real LLM calls). The test
+watchlist entry was left in the database **disabled** (not deleted) with an explanatory note, so
+the real discovery-run audit trail this produced stays intact without the entry causing future
+runs to keep pulling Palantir jobs.
+
 ## Running locally
 
 ### Option A: Docker Compose (everything)
@@ -307,15 +528,25 @@ npm run build
 
 Labelled explicitly rather than hidden behind working-looking UI:
 
-- **Automated job sources beyond Adzuna** (Lever, Greenhouse, career pages, email alerts, Seek,
-  LinkedIn, GradConnection, Prosple, Indeed) - the `JobSource` interface and discovery pipeline
-  are source-agnostic; only `AdzunaJobSource` is implemented. Scraping LinkedIn/Seek is
-  explicitly out of scope.
-- **Fuzzy/near-duplicate matching** - deduplication is exact/deterministic (external id,
-  canonical URL, normalised fields, description hash). Genuinely fuzzy matching (edit distance,
-  embeddings) is a real gap for postings reworded between boards, not yet built.
+- **Automated job sources beyond Adzuna/Lever/Greenhouse** (career pages without a Lever/
+  Greenhouse-style public API, email alerts, Seek, LinkedIn, GradConnection, Prosple, Indeed) -
+  the `JobSource` interface and discovery pipeline are source-agnostic; adding one is one new
+  adapter file. Scraping LinkedIn/Seek is explicitly out of scope (terms of service).
+- **Live Adzuna validation** - no real `ADZUNA_APP_ID`/`ADZUNA_APP_KEY` were available in this
+  environment; the adapter is fully unit-tested against mocked responses
+  (`tests/unit/test_adzuna_source.py`) and a discovery run completes successfully with zero
+  Adzuna results when unconfigured, but it hasn't been exercised against the real Adzuna API.
 - **Model routing** - the provider abstraction supports per-call model overrides, but there's no
   logic yet choosing a cheaper model for extraction vs. a stronger one for matching.
+- **External notifications (email/push)** - `AttentionItem` is a fully-built internal
+  read/unread notification system (high-priority jobs, watchlisted-company postings, analysis
+  failures, unhealthy sources), deliberately channel-agnostic in its design, but no email/push
+  delivery channel is wired up yet - notifications are only visible in-app.
+- **True distributed scheduling** - the scheduler is a single in-process `BackgroundScheduler`
+  (see Milestone 3, topic 6); running more than one instance of the backend would mean each
+  independently decides "a run is due," limited to "ran twice" (not corruption) by
+  `DiscoveryService.run()`'s overlap check, not a real distributed lock. Documented as the
+  accepted trade-off at this project's current (single-user, single-instance) scale.
 - **Outcome-based score calibration** - the schema (`application_status_events`) exists to
   support it, but no calibration logic exists yet; there isn't enough outcome data to calibrate
   against.
