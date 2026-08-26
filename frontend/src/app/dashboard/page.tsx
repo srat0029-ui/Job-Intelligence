@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { RecommendationBadge } from "@/components/RecommendationBadge";
+import { RecommendationBadge, SourceHealthBadge } from "@/components/RecommendationBadge";
 import { Card, EmptyState, ErrorBanner, SectionHeading, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
-import { scoreColorClass } from "@/lib/format";
-import type { DashboardStats, JobListItem, Recommendation } from "@/lib/types";
+import { formatDateTime, scoreColorClass } from "@/lib/format";
+import type { DashboardStats, DiscoveryDashboardStats, JobListItem, Recommendation } from "@/lib/types";
 
 function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -69,16 +69,66 @@ function ScoreDistribution({ distribution }: { distribution: Record<string, numb
   );
 }
 
+function DiscoverySummary({ stats }: { stats: DiscoveryDashboardStats }) {
+  return (
+    <Card>
+      <SectionHeading
+        title="Discovery"
+        subtitle="What automated discovery has found and whether it's running on schedule"
+        action={
+          <Link href="/discover" className="text-xs text-indigo-400 hover:underline">
+            Go to Discover ↗
+          </Link>
+        }
+      />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatTile label="New jobs today" value={stats.new_jobs_today} />
+        <StatTile label="High priority, unreviewed" value={stats.high_priority_unreviewed} />
+        <StatTile label="Unread notifications" value={stats.unread_attention_count} />
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Scheduler</p>
+          <p className="mt-2 text-sm font-medium text-zinc-200">
+            {stats.auto_discovery_enabled ? "Enabled" : "Disabled"}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Next run: {formatDateTime(stats.next_scheduled_run_at)}
+          </p>
+        </div>
+      </div>
+
+      {stats.source_health.length > 0 && (
+        <div className="mt-5 border-t border-zinc-800 pt-4">
+          <p className="mb-2 text-xs font-medium text-zinc-500">Source health</p>
+          <div className="flex flex-wrap gap-2">
+            {stats.source_health.map((h) => (
+              <div
+                key={h.source_key}
+                className="flex items-center gap-2 rounded-lg border border-zinc-800 px-3 py-1.5"
+              >
+                <span className="text-xs font-medium text-zinc-300">{h.source_key}</span>
+                <SourceHealthBadge status={h.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [discoveryStats, setDiscoveryStats] = useState<DiscoveryDashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api
-      .getDashboard()
-      .then(setStats)
-      .catch((e) => setError(e.message))
+    Promise.all([api.getDashboard(), api.getDiscoveryDashboard()])
+      .then(([s, d]) => {
+        setStats(s);
+        setDiscoveryStats(d);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -94,6 +144,8 @@ export default function DashboardPage() {
           Your job search at a glance.
         </p>
       </div>
+
+      {discoveryStats && <DiscoverySummary stats={discoveryStats} />}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
         <StatTile label="Jobs tracked" value={stats.total_jobs} />

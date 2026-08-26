@@ -29,28 +29,51 @@ def _to_domain(model: DiscoveryRunModel) -> DiscoveryRun:
             deferred=model.deferred_count,
             failed=model.failed_count,
             strong_apply_or_better=model.strong_apply_or_better_count,
+            ai_calls=model.ai_calls_count,
+            ai_input_tokens=model.ai_input_tokens,
+            ai_output_tokens=model.ai_output_tokens,
         ),
         estimated_cost_usd=model.estimated_cost_usd,
         error_message=model.error_message,
+        triggered_by=model.triggered_by,
         started_at=model.started_at,
         finished_at=model.finished_at,
     )
 
 
 class DiscoveryRunRepository:
+    def get_running(self, db: Session) -> DiscoveryRunModel | None:
+        return db.execute(
+            select(DiscoveryRunModel).where(
+                DiscoveryRunModel.status == DiscoveryRunStatus.RUNNING.value
+            )
+        ).scalars().first()
+
     def start(
-        self, db: Session, *, search_profile_ids: list[UUID], sources_used: list[str]
+        self,
+        db: Session,
+        *,
+        search_profile_ids: list[UUID],
+        sources_used: list[str],
+        triggered_by: str = "manual",
     ) -> DiscoveryRunModel:
         model = DiscoveryRunModel(
             status=DiscoveryRunStatus.RUNNING.value,
             search_profile_ids=search_profile_ids,
             sources_used=sources_used,
+            triggered_by=triggered_by,
             started_at=datetime.now(UTC),
         )
         db.add(model)
         db.commit()
         db.refresh(model)
         return model
+
+    def update_sources_used(
+        self, db: Session, model: DiscoveryRunModel, sources_used: list[str]
+    ) -> None:
+        model.sources_used = sources_used
+        db.commit()
 
     def finish(
         self,
@@ -71,6 +94,9 @@ class DiscoveryRunRepository:
         model.deferred_count = counts.deferred
         model.failed_count = counts.failed
         model.strong_apply_or_better_count = counts.strong_apply_or_better
+        model.ai_calls_count = counts.ai_calls
+        model.ai_input_tokens = counts.ai_input_tokens
+        model.ai_output_tokens = counts.ai_output_tokens
         model.estimated_cost_usd = estimated_cost_usd
         model.status = status.value
         model.error_message = error_message

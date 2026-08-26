@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
   { href: "/discover", label: "Discover", icon: "✦" },
+  { href: "/companies", label: "Companies", icon: "◫" },
   { href: "/jobs", label: "Jobs", icon: "☷" },
   { href: "/profile", label: "Candidate Profile", icon: "▤" },
   { href: "/analysis", label: "Analysis", icon: "◈" },
@@ -40,7 +41,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="mt-auto px-2 text-xs text-zinc-600">V1 foundation</div>
+      <div className="mt-auto px-2 text-xs text-zinc-600">Autonomous discovery</div>
     </aside>
   );
 }

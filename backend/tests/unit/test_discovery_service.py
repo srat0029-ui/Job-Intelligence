@@ -2,9 +2,13 @@
 limits, the auto-analysis toggle, deduplication across runs, and failure
 isolation (one bad job must never fail the whole run).
 
-Uses a fake JobSource (injected via `source_builders`) so these never touch
-Adzuna or the network, and a FakeLLMProvider (optionally wrapped to fail on
-demand) so they never touch the real Anthropic API.
+Uses a fake JobSource (injected via `adzuna_source_factory`) so these never
+touch Adzuna or the network, and a FakeLLMProvider (optionally wrapped to
+fail on demand) so they never touch the real Anthropic API. Job fixtures
+here deliberately use distinct titles/descriptions/companies (not just
+different external ids) so fuzzy deduplication - covered separately in
+test_fuzzy_deduplication.py - never accidentally collapses them and skews
+these cost-control assertions.
 """
 
 from __future__ import annotations
@@ -57,12 +61,12 @@ class _FlakyProvider(LLMProvider):
         return self._inner.generate_structured(**kwargs)
 
 
-def _posting(title: str, external_id: str) -> RawJobPosting:
+def _posting(title: str, external_id: str, company: str = "Acme") -> RawJobPosting:
     return RawJobPosting(
         title=title,
-        company="Acme",
+        company=company,
         source_type=JobSourceType.ADZUNA,
-        raw_description=f"{title}. Requires Python.",
+        raw_description=f"{title} at {company}. Requires Python. {external_id}-unique-marker.",
         external_id=external_id,
     )
 
@@ -127,14 +131,18 @@ def _fake_llm_provider() -> FakeLLMProvider:
 
 def _service(db, postings, llm_provider) -> DiscoveryService:
     return DiscoveryService(
-        llm_provider=llm_provider, source_builders=[lambda profile: _FakeSource(postings)]
+        llm_provider=llm_provider, adzuna_source_factory=lambda config: _FakeSource(postings)
     )
 
 
 def test_run_limit_defers_the_rest(db):
     _seed_candidate(db)
     profile = _seed_profile(db)
-    postings = [_posting(f"Job {i}", str(i)) for i in range(3)]
+    postings = [
+        _posting("Data Scientist", "0", company="Company Zero"),
+        _posting("Backend Engineer", "1", company="Company One"),
+        _posting("Frontend Engineer", "2", company="Company Two"),
+    ]
     AppSettingsRepository().update(db, AppSettings(max_ai_analyses_per_run=1))
 
     service = _service(db, postings, _fake_llm_provider())
@@ -177,8 +185,11 @@ def test_auto_analysis_disabled_leaves_jobs_awaiting(db):
 def test_one_failed_analysis_does_not_fail_the_whole_run(db):
     _seed_candidate(db)
     profile = _seed_profile(db)
-    postings = [_posting("Good Job", "1"), _posting("Bad Job FAIL_MARKER", "2")]
-    provider = _FlakyProvider(_fake_llm_provider(), fail_marker="FAIL_MARKER")
+    postings = [
+        _posting("Good Data Job", "1", company="Company A"),
+        _posting("Bad Backend Job FAILMARKER", "2", company="Company B"),
+    ]
+    provider = _FlakyProvider(_fake_llm_provider(), fail_marker="FAILMARKER")
 
     service = _service(db, postings, provider)
     run = service.run(db, search_profile_ids=[profile.id])
@@ -187,9 +198,9 @@ def test_one_failed_analysis_does_not_fail_the_whole_run(db):
     assert run.counts.failed == 1
 
     discovered = {d.title: d for d in DiscoveredJobRepository().list_all(db)}
-    assert discovered["Good Job"].status == DiscoveredJobStatus.ANALYSED
-    assert discovered["Bad Job FAIL_MARKER"].status == DiscoveredJobStatus.ANALYSIS_FAILED
-    assert "analysis_error" in discovered["Bad Job FAIL_MARKER"].source_metadata
+    assert discovered["Good Data Job"].status == DiscoveredJobStatus.ANALYSED
+    assert discovered["Bad Backend Job FAILMARKER"].status == DiscoveredJobStatus.ANALYSIS_FAILED
+    assert "analysis_error" in discovered["Bad Backend Job FAILMARKER"].source_metadata
 
 
 def test_duplicate_across_runs_is_not_reanalyzed(db):

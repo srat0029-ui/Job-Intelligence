@@ -1,8 +1,10 @@
-"""Unit tests for deterministic deduplication - no LLM, real Postgres."""
+"""Unit tests for exact/deterministic deduplication (stages 1-2) - no LLM,
+real Postgres. Fuzzy (stage 3) matching is covered in
+test_fuzzy_deduplication.py."""
 
 from __future__ import annotations
 
-from app.domain.enums import JobSourceType
+from app.domain.enums import DuplicateMatchStage, JobSourceType
 from app.ingestion.job_source import RawJobPosting
 from app.repositories.discovered_job_repository import DiscoveredJobRepository
 from app.services import deduplication_service
@@ -43,9 +45,10 @@ def test_same_source_and_external_id_is_a_duplicate(db):
     _store(db, original)
 
     repost = _posting(source_url="https://example.com/jobs/123?utm_source=other")
-    duplicate = deduplication_service.find_duplicate(db, repost)
+    match = deduplication_service.find_exact_or_fingerprint_duplicate(db, repost)
 
-    assert duplicate is not None
+    assert match is not None
+    assert match.stage == DuplicateMatchStage.EXACT_ID
 
 
 def test_same_canonical_url_is_a_duplicate_even_with_different_external_id(db):
@@ -55,9 +58,10 @@ def test_same_canonical_url_is_a_duplicate_even_with_different_external_id(db):
     repost = _posting(
         external_id="999", source_url="https://example.com/jobs/123/?utm_source=linkedin"
     )
-    duplicate = deduplication_service.find_duplicate(db, repost)
+    match = deduplication_service.find_exact_or_fingerprint_duplicate(db, repost)
 
-    assert duplicate is not None
+    assert match is not None
+    assert match.stage == DuplicateMatchStage.CANONICAL_URL
 
 
 def test_same_company_title_location_is_a_duplicate_with_no_url_or_id(db):
@@ -70,9 +74,10 @@ def test_same_company_title_location_is_a_duplicate_with_no_url_or_id(db):
         title="  Graduate  Data Scientist ",  # different whitespace, same normalised text
         raw_description="A totally different description text.",
     )
-    duplicate = deduplication_service.find_duplicate(db, repost)
+    match = deduplication_service.find_exact_or_fingerprint_duplicate(db, repost)
 
-    assert duplicate is not None
+    assert match is not None
+    assert match.stage == DuplicateMatchStage.DETERMINISTIC_FINGERPRINT
 
 
 def test_reposted_under_different_title_still_caught_by_description_fingerprint(db):
@@ -87,9 +92,10 @@ def test_reposted_under_different_title_still_caught_by_description_fingerprint(
         location="Sydney, NSW",  # different location
         raw_description=original.raw_description,  # but identical description
     )
-    duplicate = deduplication_service.find_duplicate(db, repost)
+    match = deduplication_service.find_exact_or_fingerprint_duplicate(db, repost)
 
-    assert duplicate is not None
+    assert match is not None
+    assert match.stage == DuplicateMatchStage.DETERMINISTIC_FINGERPRINT
 
 
 def test_genuinely_different_posting_is_not_a_duplicate(db):
@@ -104,9 +110,9 @@ def test_genuinely_different_posting_is_not_a_duplicate(db):
         location="Perth, WA",
         raw_description="A completely unrelated backend engineering role.",
     )
-    duplicate = deduplication_service.find_duplicate(db, different)
+    match = deduplication_service.find_exact_or_fingerprint_duplicate(db, different)
 
-    assert duplicate is None
+    assert match is None
 
 
 def test_canonical_url_ignores_trailing_slash_and_query_string():

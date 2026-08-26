@@ -8,16 +8,21 @@ import type {
   ApplicationStatus,
   ApplicationStatusEvent,
   AppSettings,
+  AttentionItem,
   Candidate,
+  CompanyWatchlistEntry,
   CostSummary,
   CreateJobRequest,
   DashboardStats,
+  DiscoveredJob,
   DiscoveredJobStatus,
+  DiscoveryDashboardStats,
   DiscoveryRun,
   Job,
   JobAnalysis,
   JobListItem,
   OpportunityItem,
+  OpportunityPage,
   SearchProfile,
 } from "./types";
 
@@ -135,6 +140,9 @@ export const api = {
       body: JSON.stringify({ search_profile_ids: searchProfileIds ?? null }),
     }),
   listDiscoveryRuns: () => request<DiscoveryRun[]>("/api/discovery/runs"),
+  getDiscoveryRun: (runId: string) => request<DiscoveryRun>(`/api/discovery/runs/${runId}`),
+  getDiscoveryRunJobs: (runId: string) =>
+    request<DiscoveredJob[]>(`/api/discovery/runs/${runId}/jobs`),
 
   listOpportunities: (opts: {
     sortBy?: string;
@@ -143,9 +151,12 @@ export const api = {
     searchProfileId?: string;
     includeRejected?: boolean;
     analysedOnly?: boolean;
+    reviewed?: boolean;
     minScore?: number;
+    page?: number;
+    pageSize?: number;
   } = {}) =>
-    request<OpportunityItem[]>(
+    request<OpportunityPage>(
       `/api/discovery/opportunities${query({
         sort_by: opts.sortBy,
         order: opts.order,
@@ -153,9 +164,20 @@ export const api = {
         search_profile_id: opts.searchProfileId,
         include_rejected: opts.includeRejected,
         analysed_only: opts.analysedOnly,
+        reviewed: opts.reviewed,
         min_score: opts.minScore,
+        page: opts.page,
+        page_size: opts.pageSize,
       })}`
     ),
+  markOpportunityReviewed: (discoveredJobId: string) =>
+    request<DiscoveredJob>(`/api/discovery/opportunities/${discoveredJobId}/reviewed`, {
+      method: "PUT",
+    }),
+  ignoreOpportunity: (discoveredJobId: string) =>
+    request<DiscoveredJob>(`/api/discovery/opportunities/${discoveredJobId}/ignore`, {
+      method: "PUT",
+    }),
   forceAnalyzeDiscoveredJob: (discoveredJobId: string) =>
     request<OpportunityItem>(`/api/discovery/discovered-jobs/${discoveredJobId}/analyze`, {
       method: "POST",
@@ -168,4 +190,31 @@ export const api = {
       body: JSON.stringify(settings),
     }),
   getCostSummary: () => request<CostSummary>("/api/discovery/cost-summary"),
+
+  // --- Company watchlist ---
+  listCompanyWatchlist: () => request<CompanyWatchlistEntry[]>("/api/company-watchlist"),
+  createCompanyWatchlistEntry: (entry: CompanyWatchlistEntry) =>
+    request<CompanyWatchlistEntry>("/api/company-watchlist", {
+      method: "POST",
+      body: JSON.stringify(entry),
+    }),
+  updateCompanyWatchlistEntry: (id: string, entry: CompanyWatchlistEntry) =>
+    request<CompanyWatchlistEntry>(`/api/company-watchlist/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(entry),
+    }),
+  deleteCompanyWatchlistEntry: (id: string) =>
+    request<void>(`/api/company-watchlist/${id}`, { method: "DELETE" }),
+
+  // --- Attention / notifications ---
+  listAttentionItems: (opts: { unreadOnly?: boolean; limit?: number } = {}) =>
+    request<AttentionItem[]>(
+      `/api/attention${query({ unread_only: opts.unreadOnly, limit: opts.limit })}`
+    ),
+  getUnreadAttentionCount: () =>
+    request<{ unread_count: number }>("/api/attention/unread-count"),
+  markAttentionItemRead: (id: string) =>
+    request<AttentionItem>(`/api/attention/${id}/read`, { method: "PUT" }),
+
+  getDiscoveryDashboard: () => request<DiscoveryDashboardStats>("/api/dashboard/discovery"),
 };

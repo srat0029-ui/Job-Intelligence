@@ -98,6 +98,8 @@ class AITraceStatus(str, Enum):
 class JobSourceType(str, Enum):
     MANUAL = "manual"
     ADZUNA = "adzuna"
+    LEVER = "lever"
+    GREENHOUSE = "greenhouse"
     # Future adapters - not implemented yet, listed so the schema/UI can
     # already model "where did this job come from" without a migration later.
     SEEK = "seek"
@@ -107,6 +109,56 @@ class JobSourceType(str, Enum):
     PROSPLE = "prosple"
     INDEED = "indeed"
     EMAIL = "email"
+
+
+class ATSType(str, Enum):
+    """Applicant tracking systems CompanyWatchlist entries can target.
+    Deliberately a small, explicit set - adding a new ATS is one new enum
+    value + one new JobSource implementation, never special-cased logic
+    scattered through the generic discovery orchestrator."""
+
+    LEVER = "lever"
+    GREENHOUSE = "greenhouse"
+
+
+class CompanyPriority(str, Enum):
+    """Boosts ANALYSIS PRIORITY only (which jobs get analysed first when
+    budget-constrained) - never the final candidate fit score. See
+    app/services/analysis_priority_service.py."""
+
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
+class SourceHealthStatus(str, Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+
+class DuplicateMatchStage(str, Enum):
+    """How a source observation was matched to its canonical DiscoveredJob -
+    stored per observation so a merge decision is always auditable."""
+
+    EXACT_ID = "exact_id"
+    CANONICAL_URL = "canonical_url"
+    DETERMINISTIC_FINGERPRINT = "deterministic_fingerprint"
+    FUZZY = "fuzzy"
+    ORIGINAL = "original"  # the first-seen observation - not a "match" at all
+
+
+class AttentionItemType(str, Enum):
+    HIGH_PRIORITY_JOB = "high_priority_job"
+    WATCHLIST_COMPANY_POSTING = "watchlist_company_posting"
+    ANALYSIS_FAILURES = "analysis_failures"
+    SOURCE_UNHEALTHY = "source_unhealthy"
+
+
+class AttentionItemStatus(str, Enum):
+    UNREAD = "unread"
+    READ = "read"
 
 
 class DiscoveredJobStatus(str, Enum):

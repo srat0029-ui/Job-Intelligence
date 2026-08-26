@@ -1,9 +1,13 @@
 import type {
   ApplicationStatus,
+  AttentionItemType,
+  CompanyPriority,
   DiscoveredJobStatus,
+  DuplicateMatchStage,
   EvidenceTier,
   JobPriority,
   Recommendation,
+  SourceHealthStatus,
 } from "./types";
 
 export const RECOMMENDATION_LABEL: Record<Recommendation, string> = {
@@ -82,6 +86,64 @@ export const DISCOVERED_STATUS_LABEL: Record<DiscoveredJobStatus, string> = {
   analysis_failed: "Analysis failed",
   archived: "Archived",
 };
+
+export const COMPANY_PRIORITY_LABEL: Record<CompanyPriority, string> = {
+  high: "High priority",
+  normal: "Normal priority",
+  low: "Low priority",
+};
+
+export const COMPANY_PRIORITY_CLASSES: Record<CompanyPriority, string> = {
+  high: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  normal: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30",
+  low: "bg-zinc-700/30 text-zinc-500 ring-1 ring-zinc-700/40",
+};
+
+export const SOURCE_HEALTH_LABEL: Record<SourceHealthStatus, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  error: "Error",
+  unknown: "Unknown",
+};
+
+export const SOURCE_HEALTH_CLASSES: Record<SourceHealthStatus, string> = {
+  healthy: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  degraded: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
+  error: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30",
+  unknown: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30",
+};
+
+export const ATTENTION_TYPE_LABEL: Record<AttentionItemType, string> = {
+  high_priority_job: "High-priority job",
+  watchlist_company_posting: "Watchlisted company posting",
+  analysis_failures: "Analysis failures",
+  source_unhealthy: "Source unhealthy",
+};
+
+export const DUPLICATE_MATCH_STAGE_LABEL: Record<DuplicateMatchStage, string> = {
+  exact_id: "Exact ID/URL match",
+  canonical_url: "Canonical URL match",
+  deterministic_fingerprint: "Deterministic fingerprint match",
+  fuzzy: "Fuzzy match",
+  original: "First sighting",
+};
+
+export function formatDateTime(iso?: string | null): string {
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  try {
+    return date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
 
 export function scoreColorClass(score: number): string {
   if (score >= 80) return "text-emerald-400";

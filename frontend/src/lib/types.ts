@@ -59,6 +59,27 @@ export type DiscoveredJobStatus =
   | "analysis_failed"
   | "archived";
 
+export type ATSType = "lever" | "greenhouse";
+
+export type CompanyPriority = "high" | "normal" | "low";
+
+export type SourceHealthStatus = "healthy" | "degraded" | "error" | "unknown";
+
+export type DuplicateMatchStage =
+  | "exact_id"
+  | "canonical_url"
+  | "deterministic_fingerprint"
+  | "fuzzy"
+  | "original";
+
+export type AttentionItemType =
+  | "high_priority_job"
+  | "watchlist_company_posting"
+  | "analysis_failures"
+  | "source_unhealthy";
+
+export type AttentionItemStatus = "unread" | "read";
+
 // --- Candidate ---
 
 export interface Education {
@@ -282,11 +303,18 @@ export interface CreateJobRequest {
 
 // --- Discovery ---
 
+export interface KeywordGroup {
+  name: string;
+  keywords: string[];
+}
+
 export interface SearchProfile {
   id?: string | null;
   name: string;
   keywords: string[];
+  keyword_groups: KeywordGroup[];
   locations: string[];
+  location_priority: Record<string, number>;
   include_remote: boolean;
   max_experience_level?: SeniorityLevel | null;
   excluded_keywords: string[];
@@ -306,6 +334,9 @@ export interface DiscoveryRunCounts {
   deferred: number;
   failed: number;
   strong_apply_or_better: number;
+  ai_calls: number;
+  ai_input_tokens: number;
+  ai_output_tokens: number;
 }
 
 export interface DiscoveryRun {
@@ -316,8 +347,42 @@ export interface DiscoveryRun {
   counts: DiscoveryRunCounts;
   estimated_cost_usd: number;
   error_message?: string | null;
+  triggered_by: string;
   started_at?: string | null;
   finished_at?: string | null;
+}
+
+export interface DiscoveredJob {
+  id?: string | null;
+  source: string;
+  external_id?: string | null;
+  source_url?: string | null;
+  title: string;
+  company: string;
+  raw_description: string;
+  location?: string | null;
+  remote_type?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  currency?: string | null;
+  employment_type?: string | null;
+  published_at?: string | null;
+  retrieved_at?: string | null;
+  status: DiscoveredJobStatus;
+  prefilter_reason?: string | null;
+  search_profile_id?: string | null;
+  discovery_run_id?: string | null;
+  job_id?: string | null;
+  analysis_priority?: number | null;
+  latest_overall_score?: number | null;
+  latest_recommendation?: string | null;
+  latest_priority?: string | null;
+  reviewed_at?: string | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  times_seen: number;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface OpportunityItem {
@@ -339,16 +404,85 @@ export interface OpportunityItem {
   why_summary: string[];
   application_status?: ApplicationStatus | null;
   source_url?: string | null;
+  reviewed_at?: string | null;
+}
+
+export interface OpportunityPage {
+  items: OpportunityItem[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface AppSettings {
   auto_ai_analysis_enabled: boolean;
   max_ai_analyses_per_run: number;
   daily_ai_analysis_budget_usd?: number | null;
+  auto_discovery_enabled: boolean;
+  discovery_frequency_hours: number;
+  max_postings_per_source_per_run: number;
+  last_scheduled_run_at?: string | null;
+  next_scheduled_run_at?: string | null;
 }
 
 export interface CostSummary {
   spent_today_usd: number;
   spent_all_time_usd: number;
   daily_budget_usd?: number | null;
+}
+
+// --- Company watchlist ---
+
+export interface CompanyWatchlistEntry {
+  id?: string | null;
+  company_name: string;
+  enabled: boolean;
+  priority: CompanyPriority;
+  careers_url?: string | null;
+  ats_type: ATSType;
+  ats_identifier: string;
+  preferred_locations: string[];
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// --- Source health ---
+
+export interface SourceHealth {
+  source_key: string;
+  status: SourceHealthStatus;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  consecutive_failures: number;
+  last_error_category?: string | null;
+  jobs_retrieved_last_run: number;
+  avg_latency_ms?: number | null;
+  attempts_count: number;
+}
+
+// --- Attention / notifications ---
+
+export interface AttentionItem {
+  id?: string | null;
+  item_type: AttentionItemType;
+  title: string;
+  message: string;
+  related_discovered_job_id?: string | null;
+  related_job_id?: string | null;
+  related_company?: string | null;
+  status: AttentionItemStatus;
+  created_at?: string | null;
+}
+
+// --- Dashboard ---
+
+export interface DiscoveryDashboardStats {
+  new_jobs_today: number;
+  high_priority_unreviewed: number;
+  unread_attention_count: number;
+  auto_discovery_enabled: boolean;
+  last_scheduled_run_at?: string | null;
+  next_scheduled_run_at?: string | null;
+  source_health: SourceHealth[];
 }

@@ -91,7 +91,7 @@ def _contains_any(haystack: str, needles: list[str]) -> str | None:
     return None
 
 
-def _max_years_mentioned(text: str) -> int | None:
+def max_years_mentioned(text: str) -> int | None:
     years = [int(m.group(1)) for m in _YEARS_EXPERIENCE_RE.finditer(text)]
     return max(years) if years else None
 
@@ -166,7 +166,7 @@ def evaluate_prefilter(
             if ceiling_rank <= SENIORITY_RANK[SeniorityLevel.JUNIOR]
             else MAX_ACCEPTABLE_YEARS_ABSOLUTE
         )
-        max_years = _max_years_mentioned(description)
+        max_years = max_years_mentioned(description)
         if max_years is not None and max_years > years_ceiling:
             return PreFilterResult(
                 passed=False,

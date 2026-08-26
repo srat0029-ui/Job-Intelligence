@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.discovery import SearchProfileModel
-from app.domain.discovery import SearchProfile
+from app.domain.discovery import KeywordGroup, SearchProfile
 from app.domain.enums import SeniorityLevel
 
 
@@ -17,7 +17,9 @@ def _to_domain(model: SearchProfileModel) -> SearchProfile:
         id=model.id,
         name=model.name,
         keywords=list(model.keywords or []),
+        keyword_groups=[KeywordGroup.model_validate(g) for g in (model.keyword_groups or [])],
         locations=list(model.locations or []),
+        location_priority=dict(model.location_priority or {}),
         include_remote=model.include_remote,
         max_experience_level=(
             SeniorityLevel(model.max_experience_level) if model.max_experience_level else None
@@ -35,7 +37,9 @@ class SearchProfileRepository:
         model = SearchProfileModel(
             name=profile.name,
             keywords=list(profile.keywords),
+            keyword_groups=[g.model_dump() for g in profile.keyword_groups],
             locations=list(profile.locations),
+            location_priority=dict(profile.location_priority),
             include_remote=profile.include_remote,
             max_experience_level=(
                 profile.max_experience_level.value if profile.max_experience_level else None
@@ -55,7 +59,9 @@ class SearchProfileRepository:
             return None
         model.name = profile.name
         model.keywords = list(profile.keywords)
+        model.keyword_groups = [g.model_dump() for g in profile.keyword_groups]
         model.locations = list(profile.locations)
+        model.location_priority = dict(profile.location_priority)
         model.include_remote = profile.include_remote
         model.max_experience_level = (
             profile.max_experience_level.value if profile.max_experience_level else None

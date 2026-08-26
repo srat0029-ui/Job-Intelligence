@@ -16,7 +16,9 @@ from app.repositories.analysis_repository import AnalysisRepository
 from app.services.analysis_orchestrator import AnalysisOrchestrator
 from app.services.app_settings_service import AppSettingsService
 from app.services.application_status_service import ApplicationStatusService
+from app.services.attention_service import AttentionService
 from app.services.candidate_service import CandidateService
+from app.services.company_watchlist_service import CompanyWatchlistService
 from app.services.dashboard_service import DashboardService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
@@ -74,3 +76,11 @@ def get_discovery_service(
     llm_provider: LLMProvider = Depends(get_llm_provider),
 ) -> DiscoveryService:
     return DiscoveryService(llm_provider=llm_provider)
+
+
+def get_company_watchlist_service() -> CompanyWatchlistService:
+    return CompanyWatchlistService()
+
+
+def get_attention_service() -> AttentionService:
+    return AttentionService()

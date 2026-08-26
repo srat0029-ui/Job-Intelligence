@@ -9,11 +9,13 @@ that are genuinely request-only (e.g. "create a job from pasted text").
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.domain.enums import ApplicationStatus
+from app.domain.source_health import SourceHealth
 
 
 class CreateJobRequest(BaseModel):
@@ -58,3 +60,13 @@ class CostSummary(BaseModel):
     spent_today_usd: float
     spent_all_time_usd: float
     daily_budget_usd: float | None
+
+
+class DiscoveryDashboardStats(BaseModel):
+    new_jobs_today: int
+    high_priority_unreviewed: int
+    unread_attention_count: int
+    auto_discovery_enabled: bool
+    last_scheduled_run_at: datetime | None
+    next_scheduled_run_at: datetime | None
+    source_health: list[SourceHealth]
