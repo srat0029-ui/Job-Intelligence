@@ -5,12 +5,20 @@
 // at much larger scale.
 
 import type {
+  ApplicationStatus,
+  ApplicationStatusEvent,
+  AppSettings,
   Candidate,
+  CostSummary,
   CreateJobRequest,
   DashboardStats,
+  DiscoveredJobStatus,
+  DiscoveryRun,
   Job,
   JobAnalysis,
   JobListItem,
+  OpportunityItem,
+  SearchProfile,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -26,16 +34,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
-
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -46,17 +45,55 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, detail);
   }
-
   if (res.status === 204) {
     return undefined as T;
   }
   return (await res.json()) as T;
 }
 
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  return handleResponse<T>(res);
+}
+
+async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  // No Content-Type header here on purpose - the browser sets the
+  // multipart boundary itself; overriding it breaks the upload.
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    body: formData,
+    cache: "no-store",
+  });
+  return handleResponse<T>(res);
+}
+
+function query(params: Record<string, string | number | boolean | undefined | null>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      search.set(key, String(value));
+    }
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export const api = {
   getCandidate: () => request<Candidate | null>("/api/candidate"),
   saveCandidate: (candidate: Candidate) =>
     request<Candidate>("/api/candidate", { method: "PUT", body: JSON.stringify(candidate) }),
+  parseCv: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return requestForm<Candidate>("/api/candidate/cv/parse", formData);
+  },
 
   listJobs: () => request<Job[]>("/api/jobs"),
   getJob: (jobId: string) => request<Job>(`/api/jobs/${jobId}`),
@@ -66,7 +103,69 @@ export const api = {
     request<JobAnalysis>(`/api/jobs/${jobId}/analyze`, { method: "POST" }),
   getLatestAnalysis: (jobId: string) =>
     request<JobAnalysis | null>(`/api/jobs/${jobId}/analysis`),
+  setApplicationStatus: (jobId: string, status: ApplicationStatus, note?: string) =>
+    request<Job>(`/api/jobs/${jobId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, note }),
+    }),
+  getApplicationStatusHistory: (jobId: string) =>
+    request<ApplicationStatusEvent[]>(`/api/jobs/${jobId}/status/history`),
 
   getDashboard: () => request<DashboardStats>("/api/dashboard"),
   getPrioritizedJobs: () => request<JobListItem[]>("/api/dashboard/prioritized"),
+
+  // --- Discovery ---
+  listSearchProfiles: () => request<SearchProfile[]>("/api/discovery/search-profiles"),
+  createSearchProfile: (profile: SearchProfile) =>
+    request<SearchProfile>("/api/discovery/search-profiles", {
+      method: "POST",
+      body: JSON.stringify(profile),
+    }),
+  updateSearchProfile: (id: string, profile: SearchProfile) =>
+    request<SearchProfile>(`/api/discovery/search-profiles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(profile),
+    }),
+  deleteSearchProfile: (id: string) =>
+    request<void>(`/api/discovery/search-profiles/${id}`, { method: "DELETE" }),
+
+  runDiscovery: (searchProfileIds?: string[]) =>
+    request<DiscoveryRun>("/api/discovery/run", {
+      method: "POST",
+      body: JSON.stringify({ search_profile_ids: searchProfileIds ?? null }),
+    }),
+  listDiscoveryRuns: () => request<DiscoveryRun[]>("/api/discovery/runs"),
+
+  listOpportunities: (opts: {
+    sortBy?: string;
+    order?: "asc" | "desc";
+    status?: DiscoveredJobStatus;
+    searchProfileId?: string;
+    includeRejected?: boolean;
+    analysedOnly?: boolean;
+    minScore?: number;
+  } = {}) =>
+    request<OpportunityItem[]>(
+      `/api/discovery/opportunities${query({
+        sort_by: opts.sortBy,
+        order: opts.order,
+        status: opts.status,
+        search_profile_id: opts.searchProfileId,
+        include_rejected: opts.includeRejected,
+        analysed_only: opts.analysedOnly,
+        min_score: opts.minScore,
+      })}`
+    ),
+  forceAnalyzeDiscoveredJob: (discoveredJobId: string) =>
+    request<OpportunityItem>(`/api/discovery/discovered-jobs/${discoveredJobId}/analyze`, {
+      method: "POST",
+    }),
+
+  getDiscoverySettings: () => request<AppSettings>("/api/discovery/settings"),
+  updateDiscoverySettings: (settings: AppSettings) =>
+    request<AppSettings>("/api/discovery/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  getCostSummary: () => request<CostSummary>("/api/discovery/cost-summary"),
 };

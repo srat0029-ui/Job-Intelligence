@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.domain.enums import (
+    ApplicationStatus,
     EmploymentType,
     JobSourceType,
     RequirementCategory,
@@ -25,6 +26,7 @@ class Job(BaseModel):
     source_url: str | None = None
     source_type: JobSourceType = JobSourceType.MANUAL
     raw_description: str
+    application_status: ApplicationStatus | None = None
     created_at: str | None = None
 
 

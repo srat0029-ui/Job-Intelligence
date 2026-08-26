@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import candidate, dashboard, health, jobs
+from app.api.routes import candidate, dashboard, discovery, health, jobs
 from app.api.routes import settings as settings_routes
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -32,6 +32,7 @@ app.include_router(candidate.router)
 app.include_router(jobs.router)
 app.include_router(dashboard.router)
 app.include_router(settings_routes.router)
+app.include_router(discovery.router)
 
 
 @app.exception_handler(Exception)

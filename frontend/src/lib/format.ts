@@ -1,4 +1,10 @@
-import type { EvidenceTier, Recommendation } from "./types";
+import type {
+  ApplicationStatus,
+  DiscoveredJobStatus,
+  EvidenceTier,
+  JobPriority,
+  Recommendation,
+} from "./types";
 
 export const RECOMMENDATION_LABEL: Record<Recommendation, string> = {
   strong_apply: "Strong Apply",
@@ -26,6 +32,55 @@ export const TIER_CLASSES: Record<EvidenceTier, string> = {
   transferable: "bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/30",
   weak_inference: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
   no_evidence: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30",
+};
+
+export const PRIORITY_LABEL: Record<JobPriority, string> = {
+  apply_asap: "Apply ASAP",
+  strong_apply: "Strong Apply",
+  apply: "Apply",
+  stretch: "Stretch",
+  low_priority: "Low Priority",
+};
+
+export const PRIORITY_CLASSES: Record<JobPriority, string> = {
+  apply_asap: "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40 font-semibold",
+  strong_apply: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  apply: "bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/30",
+  stretch: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
+  low_priority: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30",
+};
+
+export const APPLICATION_STATUS_LABEL: Record<ApplicationStatus, string> = {
+  interested: "Interested",
+  applying: "Applying",
+  applied: "Applied",
+  interview: "Interview",
+  rejected: "Rejected",
+  offer: "Offer",
+  withdrawn: "Withdrawn",
+  ignored: "Ignored",
+};
+
+export const APPLICATION_STATUS_OPTIONS: ApplicationStatus[] = [
+  "interested",
+  "applying",
+  "applied",
+  "interview",
+  "offer",
+  "rejected",
+  "withdrawn",
+  "ignored",
+];
+
+export const DISCOVERED_STATUS_LABEL: Record<DiscoveredJobStatus, string> = {
+  discovered: "Discovered",
+  duplicate: "Duplicate",
+  prefilter_rejected: "Filtered out",
+  awaiting_analysis: "Awaiting analysis",
+  analysing: "Analysing",
+  analysed: "Analysed",
+  analysis_failed: "Analysis failed",
+  archived: "Archived",
 };
 
 export function scoreColorClass(score: number): string {

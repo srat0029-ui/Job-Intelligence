@@ -76,6 +76,14 @@ class Achievement(BaseModel):
     date: dt.date | None = None
 
 
+class Certification(BaseModel):
+    id: UUID | None = None
+    name: str
+    issuer: str | None = None
+    date: dt.date | None = None
+    credential_url: str | None = None
+
+
 class CandidatePreferences(BaseModel):
     preferred_job_categories: list[str] = Field(default_factory=list)
     preferred_locations: list[str] = Field(default_factory=list)
@@ -85,6 +93,13 @@ class CandidatePreferences(BaseModel):
     salary_expectation_max: int | None = None
     salary_currency: str = "AUD"
     remote_preference: str | None = None  # e.g. "hybrid", "remote", "onsite"
+    # Technologies/domains the candidate actively wants more of - distinct
+    # from `skills` (what they can demonstrably do): this is a preference
+    # signal the pre-filter and future ranking can use, not evidence.
+    preferred_technologies: list[str] = Field(default_factory=list)
+    # e.g. ["sales", "recruitment"] - job categories to hard-exclude during
+    # automated discovery, regardless of otherwise-good keyword matches.
+    excluded_job_types: list[str] = Field(default_factory=list)
 
 
 class Candidate(BaseModel):
@@ -98,5 +113,6 @@ class Candidate(BaseModel):
     skills: list[Skill] = Field(default_factory=list)
     projects: list[Project] = Field(default_factory=list)
     achievements: list[Achievement] = Field(default_factory=list)
+    certifications: list[Certification] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     preferences: CandidatePreferences = Field(default_factory=CandidatePreferences)

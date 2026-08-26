@@ -67,6 +67,12 @@ class EvidenceSourceType(str, Enum):
     EDUCATION = "education"
     SKILL_DECLARATION = "skill_declaration"
     ACHIEVEMENT = "achievement"
+    CERTIFICATION = "certification"
+    # Provenance for evidence pulled in automatically rather than typed by
+    # hand - lets the UI/matching engine show "where did this come from"
+    # regardless of how a profile was built up over time.
+    CV = "cv"
+    GITHUB = "github"
 
 
 class Recommendation(str, Enum):
@@ -79,6 +85,7 @@ class Recommendation(str, Enum):
 class AIOperationType(str, Enum):
     JOB_EXTRACTION = "job_extraction"
     REQUIREMENT_MATCHING = "requirement_matching"
+    CV_EXTRACTION = "cv_extraction"
 
 
 class AITraceStatus(str, Enum):
@@ -90,7 +97,8 @@ class AITraceStatus(str, Enum):
 
 class JobSourceType(str, Enum):
     MANUAL = "manual"
-    # Future adapters - not implemented in V1, listed so the schema/UI can
+    ADZUNA = "adzuna"
+    # Future adapters - not implemented yet, listed so the schema/UI can
     # already model "where did this job come from" without a migration later.
     SEEK = "seek"
     LINKEDIN = "linkedin"
@@ -99,3 +107,53 @@ class JobSourceType(str, Enum):
     PROSPLE = "prosple"
     INDEED = "indeed"
     EMAIL = "email"
+
+
+class DiscoveredJobStatus(str, Enum):
+    """Where one discovered posting is in the discovery -> analysis pipeline.
+
+    A job only reaches ANALYSING/ANALYSED by being promoted into the
+    existing `jobs` table and run through the existing
+    AnalysisOrchestrator - this enum tracks the discovery-side workflow
+    around that, not a parallel analysis system.
+    """
+
+    DISCOVERED = "discovered"
+    DUPLICATE = "duplicate"
+    PREFILTER_REJECTED = "prefilter_rejected"
+    AWAITING_ANALYSIS = "awaiting_analysis"
+    ANALYSING = "analysing"
+    ANALYSED = "analysed"
+    ANALYSIS_FAILED = "analysis_failed"
+    ARCHIVED = "archived"
+
+
+class JobPriority(str, Enum):
+    """Higher-level triage bucket layered on top of the existing fit score,
+    for the discovery feed. Deliberately separate from `Recommendation`
+    (which stays as the per-analysis, gap-aware recommendation) - this is a
+    coarser, score-only bucket used purely for sorting/skimming a feed of
+    many opportunities at once."""
+
+    APPLY_ASAP = "apply_asap"
+    STRONG_APPLY = "strong_apply"
+    APPLY = "apply"
+    STRETCH = "stretch"
+    LOW_PRIORITY = "low_priority"
+
+
+class ApplicationStatus(str, Enum):
+    INTERESTED = "interested"
+    APPLYING = "applying"
+    APPLIED = "applied"
+    INTERVIEW = "interview"
+    REJECTED = "rejected"
+    OFFER = "offer"
+    WITHDRAWN = "withdrawn"
+    IGNORED = "ignored"
+
+
+class DiscoveryRunStatus(str, Enum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"

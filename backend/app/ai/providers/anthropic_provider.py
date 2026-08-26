@@ -28,10 +28,16 @@ T = TypeVar("T", bound=BaseModel)
 RESULT_TOOL_NAME = "emit_result"
 
 
+MAX_BACKOFF_SECONDS = 8.0
+
+
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         settings = get_settings()
-        self._client = anthropic.Anthropic(api_key=api_key or settings.anthropic_api_key)
+        self._client = anthropic.Anthropic(
+            api_key=api_key or settings.anthropic_api_key,
+            timeout=settings.llm_timeout_seconds,
+        )
         self._model = model or settings.anthropic_model
         self._max_retries = settings.llm_max_retries
         self._input_cost = settings.llm_input_cost_per_million
@@ -88,6 +94,7 @@ class AnthropicProvider(LLMProvider):
                 )
                 last_error = exc
                 logger.warning("llm_provider_error", attempt=attempt, error=str(exc))
+                self._sleep_before_retry(attempt, exc)
                 continue
 
             latency_ms = int((time.perf_counter() - start) * 1000)
@@ -156,6 +163,17 @@ class AnthropicProvider(LLMProvider):
             f"LLM structured generation failed after {attempts} attempts: {last_error}",
             trace=last_trace,
         )
+
+    def _sleep_before_retry(self, attempt: int, exc: Exception) -> None:
+        """Bounded exponential backoff before a provider-error retry.
+
+        Never sleeps more than MAX_BACKOFF_SECONDS regardless of attempt
+        count - `_max_retries` already bounds the number of attempts, this
+        just avoids hammering a rate-limited/overloaded API immediately.
+        """
+        base = 2.0 if isinstance(exc, anthropic.RateLimitError) else 0.5
+        delay = min(base * (2 ** (attempt - 1)), MAX_BACKOFF_SECONDS)
+        time.sleep(delay)
 
     def _estimate_cost(self, input_tokens: int | None, output_tokens: int | None) -> float | None:
         if input_tokens is None or output_tokens is None:

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.models.candidate import (
     AchievementModel,
     CandidateModel,
+    CertificationModel,
     EducationModel,
     EvidenceModel,
     ProjectModel,
@@ -27,6 +28,7 @@ from app.domain.candidate import (
     Achievement,
     Candidate,
     CandidatePreferences,
+    Certification,
     Education,
     Evidence,
     Project,
@@ -42,6 +44,7 @@ def _load_query():
         selectinload(CandidateModel.skills),
         selectinload(CandidateModel.projects),
         selectinload(CandidateModel.achievements),
+        selectinload(CandidateModel.certifications),
         selectinload(CandidateModel.evidence),
     )
 
@@ -104,6 +107,16 @@ def _to_domain(model: CandidateModel) -> Candidate:
             Achievement(id=a.id, title=a.title, description=a.description, date=a.date)
             for a in model.achievements
         ],
+        certifications=[
+            Certification(
+                id=c.id,
+                name=c.name,
+                issuer=c.issuer,
+                date=c.date,
+                credential_url=c.credential_url,
+            )
+            for c in model.certifications
+        ],
         evidence=[
             Evidence(
                 id=ev.id,
@@ -123,6 +136,8 @@ def _to_domain(model: CandidateModel) -> Candidate:
             salary_expectation_max=model.salary_expectation_max,
             salary_currency=model.salary_currency,
             remote_preference=model.remote_preference,
+            preferred_technologies=list(model.preferred_technologies or []),
+            excluded_job_types=list(model.excluded_job_types or []),
         ),
     )
 
@@ -152,6 +167,8 @@ class CandidateRepository:
         model.salary_expectation_max = candidate.preferences.salary_expectation_max
         model.salary_currency = candidate.preferences.salary_currency
         model.remote_preference = candidate.preferences.remote_preference
+        model.preferred_technologies = list(candidate.preferences.preferred_technologies)
+        model.excluded_job_types = list(candidate.preferences.excluded_job_types)
 
         model.education = [
             EducationModel(
@@ -199,6 +216,12 @@ class CandidateRepository:
         model.achievements = [
             AchievementModel(title=a.title, description=a.description, date=a.date)
             for a in candidate.achievements
+        ]
+        model.certifications = [
+            CertificationModel(
+                name=c.name, issuer=c.issuer, date=c.date, credential_url=c.credential_url
+            )
+            for c in candidate.certifications
         ]
         model.evidence = [
             EvidenceModel(

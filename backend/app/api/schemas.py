@@ -9,7 +9,11 @@ that are genuinely request-only (e.g. "create a job from pasted text").
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
+
+from app.domain.enums import ApplicationStatus
 
 
 class CreateJobRequest(BaseModel):
@@ -36,3 +40,21 @@ class DashboardStats(BaseModel):
     strongest_opportunities: list[JobListItem]
     recent_analyses: list[JobListItem]
     score_distribution: dict[str, int]  # bucket label -> count
+
+
+class RunDiscoveryRequest(BaseModel):
+    search_profile_ids: list[UUID] | None = Field(
+        default=None,
+        description="Run only these profiles. Omit to run every enabled search profile.",
+    )
+
+
+class SetApplicationStatusRequest(BaseModel):
+    status: ApplicationStatus
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class CostSummary(BaseModel):
+    spent_today_usd: float
+    spent_all_time_usd: float
+    daily_budget_usd: float | None

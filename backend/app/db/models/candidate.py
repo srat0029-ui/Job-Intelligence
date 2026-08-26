@@ -38,6 +38,8 @@ class CandidateModel(Base, UUIDPKMixin, TimestampMixin):
     salary_expectation_max: Mapped[int | None] = mapped_column(nullable=True)
     salary_currency: Mapped[str] = mapped_column(String(10), default="AUD")
     remote_preference: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    preferred_technologies: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    excluded_job_types: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
 
     education: Mapped[list["EducationModel"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
@@ -52,6 +54,9 @@ class CandidateModel(Base, UUIDPKMixin, TimestampMixin):
         back_populates="candidate", cascade="all, delete-orphan"
     )
     achievements: Mapped[list["AchievementModel"]] = relationship(
+        back_populates="candidate", cascade="all, delete-orphan"
+    )
+    certifications: Mapped[list["CertificationModel"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
     )
     evidence: Mapped[list["EvidenceModel"]] = relationship(
@@ -133,6 +138,20 @@ class AchievementModel(Base, UUIDPKMixin, TimestampMixin):
     date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     candidate: Mapped["CandidateModel"] = relationship(back_populates="achievements")
+
+
+class CertificationModel(Base, UUIDPKMixin, TimestampMixin):
+    __tablename__ = "certifications"
+
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(300))
+    issuer: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    credential_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    candidate: Mapped["CandidateModel"] = relationship(back_populates="certifications")
 
 
 class EvidenceModel(Base, UUIDPKMixin, TimestampMixin):

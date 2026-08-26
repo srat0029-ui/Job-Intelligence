@@ -1,17 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Field, TagListInput, TextAreaInput, TextInput } from "@/components/form";
 import {
-  AddButton,
-  Field,
-  RemoveButton,
-  TagListInput,
-  TextAreaInput,
-  TextInput,
-} from "@/components/form";
-import { Card, ErrorBanner, PrimaryButton, SectionHeading, Spinner } from "@/components/ui";
-import { api } from "@/lib/api";
-import type { Candidate, Evidence, Project, Skill } from "@/lib/types";
+  AchievementsEditor,
+  CertificationsEditor,
+  EducationEditor,
+  EvidenceEditor,
+  ProjectsEditor,
+  SkillsEditor,
+  WorkHistoryEditor,
+} from "@/components/profile-editors";
+import {
+  Card,
+  ErrorBanner,
+  PrimaryButton,
+  SecondaryButton,
+  SectionHeading,
+  Spinner,
+} from "@/components/ui";
+import { ApiError, api } from "@/lib/api";
+import type { Candidate } from "@/lib/types";
 
 const EMPTY_CANDIDATE: Candidate = {
   name: "",
@@ -23,6 +32,7 @@ const EMPTY_CANDIDATE: Candidate = {
   skills: [],
   projects: [],
   achievements: [],
+  certifications: [],
   evidence: [],
   preferences: {
     preferred_job_categories: [],
@@ -32,186 +42,102 @@ const EMPTY_CANDIDATE: Candidate = {
     salary_expectation_max: null,
     salary_currency: "AUD",
     remote_preference: "",
+    preferred_technologies: [],
+    excluded_job_types: [],
   },
 };
 
-function SkillsEditor({
-  skills,
-  onChange,
+function CvImportPanel({
+  candidate,
+  onMerge,
 }: {
-  skills: Skill[];
-  onChange: (skills: Skill[]) => void;
+  candidate: Candidate;
+  onMerge: (patch: Partial<Candidate>) => void;
 }) {
-  function update(i: number, patch: Partial<Skill>) {
-    onChange(skills.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
-  }
-  return (
-    <div className="space-y-3">
-      {skills.map((skill, i) => (
-        <div key={i} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Field label="Skill name">
-              <TextInput value={skill.name} onChange={(v) => update(i, { name: v })} />
-            </Field>
-          </div>
-          <div className="w-40">
-            <Field label="Category">
-              <TextInput
-                value={skill.category ?? ""}
-                onChange={(v) => update(i, { category: v })}
-                placeholder="language / tool / domain"
-              />
-            </Field>
-          </div>
-          <div className="w-36">
-            <Field label="Proficiency">
-              <TextInput
-                value={skill.proficiency ?? ""}
-                onChange={(v) => update(i, { proficiency: v })}
-                placeholder="proficient"
-              />
-            </Field>
-          </div>
-          <RemoveButton onClick={() => onChange(skills.filter((_, idx) => idx !== i))} />
-        </div>
-      ))}
-      <AddButton
-        label="+ Add skill"
-        onClick={() =>
-          onChange([...skills, { name: "", category: "", aliases: [], proficiency: "" }])
-        }
-      />
-    </div>
-  );
-}
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [proposal, setProposal] = useState<Candidate | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-function ProjectsEditor({
-  projects,
-  onChange,
-}: {
-  projects: Project[];
-  onChange: (projects: Project[]) => void;
-}) {
-  function update(i: number, patch: Partial<Project>) {
-    onChange(projects.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    setProposal(null);
+    try {
+      const parsed = await api.parseCv(file);
+      setProposal(parsed);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Failed to parse CV");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
-  return (
-    <div className="space-y-5">
-      {projects.map((project, i) => (
-        <div key={i} className="rounded-lg border border-zinc-800 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-zinc-300">Project {i + 1}</p>
-            <RemoveButton onClick={() => onChange(projects.filter((_, idx) => idx !== i))} />
-          </div>
-          <div className="space-y-3">
-            <Field label="Name">
-              <TextInput value={project.name} onChange={(v) => update(i, { name: v })} />
-            </Field>
-            <Field label="Description">
-              <TextAreaInput
-                value={project.description}
-                onChange={(v) => update(i, { description: v })}
-              />
-            </Field>
-            <Field label="Technologies (comma separated)">
-              <TagListInput
-                values={project.technologies}
-                onChange={(v) => update(i, { technologies: v })}
-              />
-            </Field>
-            <Field label="GitHub URL">
-              <TextInput
-                value={project.github_url ?? ""}
-                onChange={(v) => update(i, { github_url: v })}
-              />
-            </Field>
-            <Field label="Highlights (comma separated - each becomes a bullet of evidence)">
-              <TagListInput
-                values={project.highlights}
-                onChange={(v) => update(i, { highlights: v })}
-              />
-            </Field>
-          </div>
-        </div>
-      ))}
-      <AddButton
-        label="+ Add project"
-        onClick={() =>
-          onChange([
-            ...projects,
-            { name: "", description: "", technologies: [], github_url: "", highlights: [] },
-          ])
-        }
-      />
-    </div>
-  );
-}
 
-function EvidenceEditor({
-  evidence,
-  onChange,
-}: {
-  evidence: Evidence[];
-  onChange: (evidence: Evidence[]) => void;
-}) {
-  function update(i: number, patch: Partial<Evidence>) {
-    onChange(evidence.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  function addCategory<K extends keyof Candidate>(key: K) {
+    if (!proposal) return;
+    const existing = candidate[key] as unknown as unknown[];
+    const incoming = proposal[key] as unknown as unknown[];
+    onMerge({ [key]: [...existing, ...incoming] } as Partial<Candidate>);
   }
+
+  function categoryRow(label: string, key: keyof Candidate) {
+    if (!proposal) return null;
+    const items = proposal[key] as unknown as unknown[];
+    if (!items || items.length === 0) return null;
+    return (
+      <div className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-2.5">
+        <span className="text-sm text-zinc-300">
+          {label}: <span className="text-zinc-500">{items.length} found</span>
+        </span>
+        <SecondaryButton onClick={() => addCategory(key)}>Add to profile</SecondaryButton>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-zinc-400">
-        Evidence is what the matching engine cites when it claims you have a skill - every
-        positive match traces back to one of these statements.
-      </p>
-      {evidence.map((item, i) => (
-        <div key={i} className="rounded-lg border border-zinc-800 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-zinc-300">Evidence {i + 1}</p>
-            <RemoveButton onClick={() => onChange(evidence.filter((_, idx) => idx !== i))} />
-          </div>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Source type">
-                <TextInput
-                  value={item.source_type}
-                  onChange={(v) => update(i, { source_type: v })}
-                  placeholder="project / work_experience / education"
-                />
-              </Field>
-              <Field label="Source label">
-                <TextInput
-                  value={item.source_label}
-                  onChange={(v) => update(i, { source_label: v })}
-                  placeholder="e.g. AFL Pricing Engine"
-                />
-              </Field>
-            </div>
-            <Field label="Statement">
-              <TextAreaInput
-                value={item.statement}
-                onChange={(v) => update(i, { statement: v })}
-                rows={2}
-              />
-            </Field>
-            <Field label="Skill tags (comma separated)">
-              <TagListInput
-                values={item.skill_tags}
-                onChange={(v) => update(i, { skill_tags: v })}
-              />
-            </Field>
-          </div>
-        </div>
-      ))}
-      <AddButton
-        label="+ Add evidence"
-        onClick={() =>
-          onChange([
-            ...evidence,
-            { source_type: "project", source_label: "", statement: "", skill_tags: [] },
-          ])
-        }
+    <Card>
+      <SectionHeading
+        title="Import from CV"
+        subtitle="Upload a PDF resume - nothing is saved to your profile until you review and add it below, then hit Save profile."
       />
-    </div>
+      <div className="flex items-center gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={handleFileChange}
+          disabled={uploading}
+          className="text-sm text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-indigo-500"
+        />
+        {uploading && <span className="text-sm text-zinc-500">Parsing...</span>}
+      </div>
+
+      {error && (
+        <div className="mt-3">
+          <ErrorBanner message={error} />
+        </div>
+      )}
+
+      {proposal && (
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-zinc-400">
+            Found for <span className="text-zinc-200">{proposal.name || "unnamed candidate"}</span>
+            . Review and add each category you want - existing profile data is never overwritten
+            automatically.
+          </p>
+          {categoryRow("Education", "education")}
+          {categoryRow("Work history", "work_history")}
+          {categoryRow("Projects", "projects")}
+          {categoryRow("Skills", "skills")}
+          {categoryRow("Achievements", "achievements")}
+          {categoryRow("Certifications", "certifications")}
+          {categoryRow("Evidence", "evidence")}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -254,7 +180,7 @@ export default function ProfilePage() {
         <div>
           <h1 className="text-2xl font-semibold text-zinc-100">Candidate Profile</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            This data drives every fit score. Edit it here, or replace{" "}
+            This data drives every fit score. Edit it here, import from a CV below, or replace{" "}
             <code className="text-zinc-500">backend/app/seed/candidate_seed.json</code> and
             re-run the seed script for a bulk update.
           </p>
@@ -268,6 +194,11 @@ export default function ProfilePage() {
       </div>
 
       {error && <ErrorBanner message={error} />}
+
+      <CvImportPanel
+        candidate={candidate}
+        onMerge={(patch) => setCandidate({ ...candidate, ...patch })}
+      />
 
       <Card>
         <SectionHeading title="Basics" />
@@ -304,6 +235,22 @@ export default function ProfilePage() {
       </Card>
 
       <Card>
+        <SectionHeading title="Education" />
+        <EducationEditor
+          education={candidate.education}
+          onChange={(education) => setCandidate({ ...candidate, education })}
+        />
+      </Card>
+
+      <Card>
+        <SectionHeading title="Work history" />
+        <WorkHistoryEditor
+          workHistory={candidate.work_history}
+          onChange={(work_history) => setCandidate({ ...candidate, work_history })}
+        />
+      </Card>
+
+      <Card>
         <SectionHeading title="Skills" />
         <SkillsEditor
           skills={candidate.skills}
@@ -316,6 +263,22 @@ export default function ProfilePage() {
         <ProjectsEditor
           projects={candidate.projects}
           onChange={(projects) => setCandidate({ ...candidate, projects })}
+        />
+      </Card>
+
+      <Card>
+        <SectionHeading title="Achievements" />
+        <AchievementsEditor
+          achievements={candidate.achievements}
+          onChange={(achievements) => setCandidate({ ...candidate, achievements })}
+        />
+      </Card>
+
+      <Card>
+        <SectionHeading title="Certifications" />
+        <CertificationsEditor
+          certifications={candidate.certifications}
+          onChange={(certifications) => setCandidate({ ...candidate, certifications })}
         />
       </Card>
 
@@ -350,6 +313,29 @@ export default function ProfilePage() {
                   preferences: { ...candidate.preferences, preferred_locations: v },
                 })
               }
+            />
+          </Field>
+          <Field label="Preferred technologies/domains (comma separated)">
+            <TagListInput
+              values={candidate.preferences.preferred_technologies}
+              onChange={(v) =>
+                setCandidate({
+                  ...candidate,
+                  preferences: { ...candidate.preferences, preferred_technologies: v },
+                })
+              }
+            />
+          </Field>
+          <Field label="Excluded job types (comma separated)">
+            <TagListInput
+              values={candidate.preferences.excluded_job_types}
+              onChange={(v) =>
+                setCandidate({
+                  ...candidate,
+                  preferences: { ...candidate.preferences, excluded_job_types: v },
+                })
+              }
+              placeholder="sales, recruitment"
             />
           </Field>
           <Field label="Work rights (comma separated)">

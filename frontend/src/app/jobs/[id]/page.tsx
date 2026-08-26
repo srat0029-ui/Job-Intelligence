@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ApplicationStatusSelector } from "@/components/ApplicationStatusSelector";
 import { RecommendationBadge, TierBadge } from "@/components/RecommendationBadge";
 import { ScoreBar } from "@/components/ScoreBar";
 import {
@@ -207,22 +208,29 @@ export default function JobDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">{job.title}</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          {job.company}
-          {job.location ? ` · ${job.location}` : ""} · Added {formatDate(job.created_at)}
-        </p>
-        {job.source_url && (
-          <a
-            href={job.source_url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-block text-sm text-indigo-400 hover:underline"
-          >
-            View original posting ↗
-          </a>
-        )}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-100">{job.title}</h1>
+          <p className="mt-1 text-sm text-zinc-400">
+            {job.company}
+            {job.location ? ` · ${job.location}` : ""} · Added {formatDate(job.created_at)}
+          </p>
+          {job.source_url && (
+            <a
+              href={job.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-sm text-indigo-400 hover:underline"
+            >
+              View original posting ↗
+            </a>
+          )}
+        </div>
+        <ApplicationStatusSelector
+          jobId={job.id}
+          status={job.application_status}
+          onChange={(status) => setJob({ ...job, application_status: status })}
+        />
       </div>
 
       {error && <ErrorBanner message={error} />}

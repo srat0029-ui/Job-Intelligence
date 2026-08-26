@@ -40,6 +40,12 @@ def engine():
     with eng.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.commit()
+    # drop_all + create_all (not just create_all) because this database
+    # persists across test runs - create_all alone would leave a stale
+    # schema from a previous run's model definitions in place (it only
+    # creates missing tables, it never ALTERs existing ones to match model
+    # changes like a new column).
+    Base.metadata.drop_all(eng)
     Base.metadata.create_all(eng)
     yield eng
     eng.dispose()

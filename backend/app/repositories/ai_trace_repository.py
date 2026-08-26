@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.ai_trace import AITraceModel
@@ -67,3 +69,27 @@ class AITraceRepository:
             .all()
         )
         return [_to_domain(m) for m in models]
+
+    def sum_cost_since(self, db: Session, since: datetime) -> float:
+        total = db.execute(
+            select(func.coalesce(func.sum(AITraceModel.estimated_cost_usd), 0.0)).where(
+                AITraceModel.created_at >= since
+            )
+        ).scalar_one()
+        return float(total or 0.0)
+
+    def sum_cost_for_input_identifiers(self, db: Session, input_identifiers: list[str]) -> float:
+        if not input_identifiers:
+            return 0.0
+        total = db.execute(
+            select(func.coalesce(func.sum(AITraceModel.estimated_cost_usd), 0.0)).where(
+                AITraceModel.input_identifier.in_(input_identifiers)
+            )
+        ).scalar_one()
+        return float(total or 0.0)
+
+    def sum_cost_all_time(self, db: Session) -> float:
+        total = db.execute(
+            select(func.coalesce(func.sum(AITraceModel.estimated_cost_usd), 0.0))
+        ).scalar_one()
+        return float(total or 0.0)

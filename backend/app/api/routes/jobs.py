@@ -5,9 +5,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_analysis_orchestrator, get_analysis_repository, get_db, get_job_service
-from app.api.schemas import CreateJobRequest
+from app.api.deps import (
+    get_analysis_orchestrator,
+    get_analysis_repository,
+    get_application_status_service,
+    get_db,
+    get_job_service,
+)
+from app.api.schemas import CreateJobRequest, SetApplicationStatusRequest
 from app.domain.analysis import JobAnalysis
+from app.domain.application_status import ApplicationStatusEvent
 from app.domain.job import Job
 from app.ingestion.job_source import ManualJobSource
 from app.repositories.analysis_repository import AnalysisRepository
@@ -16,6 +23,7 @@ from app.services.analysis_orchestrator import (
     CandidateProfileMissingError,
     JobNotFoundError,
 )
+from app.services.application_status_service import ApplicationStatusService
 from app.services.job_service import JobService
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -76,3 +84,27 @@ def get_latest_analysis(
     repository: AnalysisRepository = Depends(get_analysis_repository),
 ) -> JobAnalysis | None:
     return repository.get_latest_for_job(db, job_id)
+
+
+@router.put("/{job_id}/status", response_model=Job)
+def set_application_status(
+    job_id: UUID,
+    payload: SetApplicationStatusRequest,
+    db: Session = Depends(get_db),
+    service: ApplicationStatusService = Depends(get_application_status_service),
+) -> Job:
+    """Manual application-status tracking only - no automatic applications
+    are ever submitted. See app/services/application_status_service.py."""
+    job = service.set_status(db, job_id, payload.status, payload.note)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.get("/{job_id}/status/history", response_model=list[ApplicationStatusEvent])
+def get_application_status_history(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    service: ApplicationStatusService = Depends(get_application_status_service),
+) -> list[ApplicationStatusEvent]:
+    return service.history(db, job_id)

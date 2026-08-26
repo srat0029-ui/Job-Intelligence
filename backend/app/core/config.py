@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     )
     anthropic_model: str = Field(default="claude-sonnet-5")
     llm_max_retries: int = Field(default=2)
+    llm_timeout_seconds: float = Field(default=60.0, description="Bounds tail latency per attempt.")
 
     # App
     environment: str = Field(default="development")
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     # Estimated pricing (USD per 1M tokens) used only for cost logging/estimates.
     llm_input_cost_per_million: float = Field(default=3.0)
     llm_output_cost_per_million: float = Field(default=15.0)
+
+    # Adzuna (job discovery source) - server-side only, never exposed to frontend.
+    adzuna_app_id: str = Field(default="")
+    adzuna_app_key: str = Field(default="")
+    adzuna_country: str = Field(default="au")
 
 
 @lru_cache

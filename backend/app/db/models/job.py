@@ -15,3 +15,4 @@ class JobModel(Base, UUIDPKMixin, TimestampMixin):
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), default="manual")
     raw_description: Mapped[str] = mapped_column(Text)
+    application_status: Mapped[str | None] = mapped_column(String(30), nullable=True)

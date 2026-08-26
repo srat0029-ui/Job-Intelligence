@@ -37,6 +37,28 @@ export type SeniorityLevel =
   | "staff_plus"
   | "unknown";
 
+export type JobPriority = "apply_asap" | "strong_apply" | "apply" | "stretch" | "low_priority";
+
+export type ApplicationStatus =
+  | "interested"
+  | "applying"
+  | "applied"
+  | "interview"
+  | "rejected"
+  | "offer"
+  | "withdrawn"
+  | "ignored";
+
+export type DiscoveredJobStatus =
+  | "discovered"
+  | "duplicate"
+  | "prefilter_rejected"
+  | "awaiting_analysis"
+  | "analysing"
+  | "analysed"
+  | "analysis_failed"
+  | "archived";
+
 // --- Candidate ---
 
 export interface Education {
@@ -94,6 +116,14 @@ export interface Achievement {
   date?: string | null;
 }
 
+export interface Certification {
+  id?: string | null;
+  name: string;
+  issuer?: string | null;
+  date?: string | null;
+  credential_url?: string | null;
+}
+
 export interface CandidatePreferences {
   preferred_job_categories: string[];
   preferred_locations: string[];
@@ -102,6 +132,8 @@ export interface CandidatePreferences {
   salary_expectation_max?: number | null;
   salary_currency: string;
   remote_preference?: string | null;
+  preferred_technologies: string[];
+  excluded_job_types: string[];
 }
 
 export interface Candidate {
@@ -115,6 +147,7 @@ export interface Candidate {
   skills: Skill[];
   projects: Project[];
   achievements: Achievement[];
+  certifications: Certification[];
   evidence: Evidence[];
   preferences: CandidatePreferences;
 }
@@ -129,6 +162,15 @@ export interface Job {
   source_url?: string | null;
   source_type: string;
   raw_description: string;
+  application_status?: ApplicationStatus | null;
+  created_at?: string | null;
+}
+
+export interface ApplicationStatusEvent {
+  id: string;
+  job_id: string;
+  status: ApplicationStatus;
+  note?: string | null;
   created_at?: string | null;
 }
 
@@ -236,4 +278,77 @@ export interface CreateJobRequest {
   location?: string | null;
   source_url?: string | null;
   raw_description: string;
+}
+
+// --- Discovery ---
+
+export interface SearchProfile {
+  id?: string | null;
+  name: string;
+  keywords: string[];
+  locations: string[];
+  include_remote: boolean;
+  max_experience_level?: SeniorityLevel | null;
+  excluded_keywords: string[];
+  enabled: boolean;
+  source_config: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DiscoveryRunCounts {
+  retrieved: number;
+  new: number;
+  duplicates: number;
+  prefilter_rejected: number;
+  eligible: number;
+  analysed: number;
+  deferred: number;
+  failed: number;
+  strong_apply_or_better: number;
+}
+
+export interface DiscoveryRun {
+  id?: string | null;
+  status: "running" | "completed" | "failed";
+  search_profile_ids: string[];
+  sources_used: string[];
+  counts: DiscoveryRunCounts;
+  estimated_cost_usd: number;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface OpportunityItem {
+  discovered_job_id: string;
+  job_id?: string | null;
+  title: string;
+  company: string;
+  location?: string | null;
+  status: DiscoveredJobStatus;
+  prefilter_reason?: string | null;
+  search_profile_id?: string | null;
+  published_at?: string | null;
+  discovered_at?: string | null;
+  overall_score?: number | null;
+  recommendation?: Recommendation | null;
+  priority?: JobPriority | null;
+  strong_matches: string[];
+  main_gap?: string | null;
+  why_summary: string[];
+  application_status?: ApplicationStatus | null;
+  source_url?: string | null;
+}
+
+export interface AppSettings {
+  auto_ai_analysis_enabled: boolean;
+  max_ai_analyses_per_run: number;
+  daily_ai_analysis_budget_usd?: number | null;
+}
+
+export interface CostSummary {
+  spent_today_usd: number;
+  spent_all_time_usd: number;
+  daily_budget_usd?: number | null;
 }
