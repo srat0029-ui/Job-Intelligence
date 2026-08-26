@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(
         default="", description="Server-side only. Never exposed to frontend."
     )
-    anthropic_model: str = Field(default="claude-sonnet-5-20250929")
+    anthropic_model: str = Field(default="claude-sonnet-5")
     llm_max_retries: int = Field(default=2)
 
     # App
