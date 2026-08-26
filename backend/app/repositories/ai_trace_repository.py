@@ -62,6 +62,22 @@ class AITraceRepository:
         )
         return [_to_domain(m) for m in models]
 
+    def list_for_input_prefix(self, db: Session, prefix: str) -> list[AITrace]:
+        """All traces whose input_identifier starts with `prefix` - used by
+        the Application Workspace debug/trace view, since one workspace's
+        AI calls are tagged f"workspace:{id}:{step}" rather than one single
+        identifier (see app/services/application_workflow_service.py)."""
+        models = (
+            db.execute(
+                select(AITraceModel)
+                .where(AITraceModel.input_identifier.like(f"{prefix}%"))
+                .order_by(AITraceModel.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return [_to_domain(m) for m in models]
+
     def list_recent(self, db: Session, limit: int = 100) -> list[AITrace]:
         models = (
             db.execute(select(AITraceModel).order_by(AITraceModel.created_at.desc()).limit(limit))

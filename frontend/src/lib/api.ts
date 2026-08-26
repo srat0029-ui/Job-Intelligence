@@ -5,14 +5,22 @@
 // at much larger scale.
 
 import type {
+  ApplicationBrief,
+  ApplicationQuestionResponse,
   ApplicationStatus,
   ApplicationStatusEvent,
+  ApplicationStrategy,
+  ApplicationWorkspace,
   AppSettings,
   AttentionItem,
   Candidate,
+  CommunicationStyle,
+  CompanyResearchBundle,
   CompanyWatchlistEntry,
   CostSummary,
+  CoverLetter,
   CreateJobRequest,
+  CVTailoringBatch,
   DashboardStats,
   DiscoveredJob,
   DiscoveredJobStatus,
@@ -23,7 +31,11 @@ import type {
   JobListItem,
   OpportunityItem,
   OpportunityPage,
+  ResearchSource,
+  ResearchSourceType,
   SearchProfile,
+  WorkspaceOverview,
+  WorkspaceTrace,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -217,4 +229,82 @@ export const api = {
     request<AttentionItem>(`/api/attention/${id}/read`, { method: "PUT" }),
 
   getDiscoveryDashboard: () => request<DiscoveryDashboardStats>("/api/dashboard/discovery"),
+
+  // --- Application Workspace (Milestone 4A) ---
+  getOrCreateWorkspace: (jobId: string) =>
+    request<ApplicationWorkspace>(`/api/jobs/${jobId}/workspace`, { method: "POST" }),
+  getWorkspaceOverview: (workspaceId: string) =>
+    request<WorkspaceOverview>(`/api/application-workspaces/${workspaceId}`),
+  updateWorkspaceNotes: (workspaceId: string, notes: string) =>
+    request<ApplicationWorkspace>(`/api/application-workspaces/${workspaceId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify({ notes }),
+    }),
+  getApplicationBrief: (workspaceId: string) =>
+    request<ApplicationBrief>(`/api/application-workspaces/${workspaceId}/brief`),
+  getWorkspaceTrace: (workspaceId: string) =>
+    request<WorkspaceTrace>(`/api/application-workspaces/${workspaceId}/trace`),
+
+  addResearchSource: (
+    workspaceId: string,
+    payload: { url: string; sourceType: ResearchSourceType; forceRefresh?: boolean }
+  ) =>
+    request<ResearchSource>(`/api/application-workspaces/${workspaceId}/research/sources`, {
+      method: "POST",
+      body: JSON.stringify({
+        url: payload.url,
+        source_type: payload.sourceType,
+        force_refresh: payload.forceRefresh ?? false,
+      }),
+    }),
+  getResearchBundle: (workspaceId: string) =>
+    request<CompanyResearchBundle>(`/api/application-workspaces/${workspaceId}/research`),
+
+  generateStrategy: (workspaceId: string) =>
+    request<ApplicationStrategy>(`/api/application-workspaces/${workspaceId}/strategy`, {
+      method: "POST",
+    }),
+  getLatestStrategy: (workspaceId: string) =>
+    request<ApplicationStrategy | null>(`/api/application-workspaces/${workspaceId}/strategy`),
+  getStrategyHistory: (workspaceId: string) =>
+    request<ApplicationStrategy[]>(`/api/application-workspaces/${workspaceId}/strategy/history`),
+
+  generateCvTailoring: (workspaceId: string) =>
+    request<CVTailoringBatch>(`/api/application-workspaces/${workspaceId}/cv-tailoring`, {
+      method: "POST",
+    }),
+  getLatestCvTailoring: (workspaceId: string) =>
+    request<CVTailoringBatch | null>(`/api/application-workspaces/${workspaceId}/cv-tailoring`),
+  getCvTailoringHistory: (workspaceId: string) =>
+    request<CVTailoringBatch[]>(`/api/application-workspaces/${workspaceId}/cv-tailoring/history`),
+
+  submitQuestion: (workspaceId: string, questionText: string) =>
+    request<ApplicationQuestionResponse>(`/api/application-workspaces/${workspaceId}/questions`, {
+      method: "POST",
+      body: JSON.stringify({ question_text: questionText }),
+    }),
+  listQuestions: (workspaceId: string) =>
+    request<ApplicationQuestionResponse[]>(`/api/application-workspaces/${workspaceId}/questions`),
+  getQuestionHistory: (workspaceId: string, questionText: string) =>
+    request<ApplicationQuestionResponse[]>(
+      `/api/application-workspaces/${workspaceId}/questions/history${query({
+        question_text: questionText,
+      })}`
+    ),
+
+  generateCoverLetter: (workspaceId: string) =>
+    request<CoverLetter>(`/api/application-workspaces/${workspaceId}/cover-letter`, {
+      method: "POST",
+    }),
+  getLatestCoverLetter: (workspaceId: string) =>
+    request<CoverLetter | null>(`/api/application-workspaces/${workspaceId}/cover-letter`),
+  getCoverLetterHistory: (workspaceId: string) =>
+    request<CoverLetter[]>(`/api/application-workspaces/${workspaceId}/cover-letter/history`),
+
+  getCommunicationStyle: () => request<CommunicationStyle>("/api/communication-style"),
+  updateCommunicationStyle: (style: CommunicationStyle) =>
+    request<CommunicationStyle>("/api/communication-style", {
+      method: "PUT",
+      body: JSON.stringify(style),
+    }),
 };

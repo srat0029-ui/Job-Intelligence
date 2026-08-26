@@ -12,7 +12,7 @@ import {
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { categoryLabel, formatDateTime } from "@/lib/format";
-import type { AppSettings, CostSummary } from "@/lib/types";
+import type { AppSettings, CommunicationStyle, CostSummary } from "@/lib/types";
 
 interface SettingsInfo {
   environment: string;
@@ -203,6 +203,115 @@ function CostControlsCard() {
   );
 }
 
+const TONE_OPTIONS = ["concise", "natural", "conversational_professional"];
+
+function CommunicationStyleCard() {
+  const [style, setStyle] = useState<CommunicationStyle | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getCommunicationStyle()
+      .then(setStyle)
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+  }, []);
+
+  async function handleSave() {
+    if (!style) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.updateCommunicationStyle(style);
+      setStyle(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!style) return null;
+
+  return (
+    <Card>
+      <SectionHeading
+        title="Application writing style"
+        subtitle="Shapes HOW generated application material reads (cover letters, CV suggestions, question answers) - it never relaxes grounding rules, which are enforced entirely in code regardless of style."
+        action={
+          <div className="flex items-center gap-3">
+            {saved && <span className="text-sm text-emerald-400">Saved</span>}
+            <PrimaryButton onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </PrimaryButton>
+          </div>
+        }
+      />
+      {error && <ErrorBanner message={error} />}
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Tone">
+          <select
+            value={style.tone}
+            onChange={(e) => setStyle({ ...style, tone: e.target.value })}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+          >
+            {TONE_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Region convention">
+          <TextInput
+            value={style.region_convention}
+            onChange={(v) => setStyle({ ...style, region_convention: v })}
+          />
+        </Field>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2">
+        <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={style.avoid_buzzwords}
+            onChange={(e) => setStyle({ ...style, avoid_buzzwords: e.target.checked })}
+          />
+          Avoid unnecessary corporate buzzwords
+        </label>
+        <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={style.avoid_exaggerated_claims}
+            onChange={(e) => setStyle({ ...style, avoid_exaggerated_claims: e.target.checked })}
+          />
+          Avoid exaggerated claims
+        </label>
+        <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={style.prefer_specific_examples}
+            onChange={(e) => setStyle({ ...style, prefer_specific_examples: e.target.checked })}
+          />
+          Prefer specific examples
+        </label>
+        <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={style.avoid_em_dashes}
+            onChange={(e) => setStyle({ ...style, avoid_em_dashes: e.target.checked })}
+          />
+          Avoid em dashes
+        </label>
+      </div>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const [info, setInfo] = useState<SettingsInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -268,6 +377,8 @@ export default function SettingsPage() {
           </Card>
 
           <CostControlsCard />
+
+          <CommunicationStyleCard />
 
           <Card>
             <SectionHeading

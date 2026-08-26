@@ -10,7 +10,7 @@ class AITraceModel(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "ai_traces"
 
     operation_type: Mapped[str] = mapped_column(String(50))
-    prompt_version: Mapped[str] = mapped_column(String(20))
+    prompt_version: Mapped[str] = mapped_column(String(100))
     model: Mapped[str] = mapped_column(String(100))
     input_identifier: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(30))

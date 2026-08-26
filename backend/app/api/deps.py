@@ -12,12 +12,16 @@ from sqlalchemy.orm import Session
 from app.ai.providers.base import LLMProvider
 from app.ai.providers.factory import get_llm_provider
 from app.db.session import SessionLocal
+from app.ingestion.research_provider import HttpResearchProvider, ResearchProvider
 from app.repositories.analysis_repository import AnalysisRepository
 from app.services.analysis_orchestrator import AnalysisOrchestrator
 from app.services.app_settings_service import AppSettingsService
 from app.services.application_status_service import ApplicationStatusService
+from app.services.application_workflow_service import ApplicationWorkflowService
+from app.services.application_workspace_service import ApplicationWorkspaceService
 from app.services.attention_service import AttentionService
 from app.services.candidate_service import CandidateService
+from app.services.communication_style_service import CommunicationStyleService
 from app.services.company_watchlist_service import CompanyWatchlistService
 from app.services.dashboard_service import DashboardService
 from app.services.discovery_service import DiscoveryService
@@ -84,3 +88,28 @@ def get_company_watchlist_service() -> CompanyWatchlistService:
 
 def get_attention_service() -> AttentionService:
     return AttentionService()
+
+
+def get_research_provider() -> Generator[ResearchProvider, None, None]:
+    provider = HttpResearchProvider()
+    try:
+        yield provider
+    finally:
+        provider.close()
+
+
+def get_application_workspace_service() -> ApplicationWorkspaceService:
+    return ApplicationWorkspaceService()
+
+
+def get_application_workflow_service(
+    llm_provider: LLMProvider = Depends(get_llm_provider),
+    research_provider: ResearchProvider = Depends(get_research_provider),
+) -> ApplicationWorkflowService:
+    return ApplicationWorkflowService(
+        llm_provider=llm_provider, research_provider=research_provider
+    )
+
+
+def get_communication_style_service() -> CommunicationStyleService:
+    return CommunicationStyleService()

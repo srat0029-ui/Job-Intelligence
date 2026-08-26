@@ -1,13 +1,20 @@
 import type {
   ApplicationStatus,
   AttentionItemType,
+  ClaimVerificationStatus,
   CompanyPriority,
   DiscoveredJobStatus,
   DuplicateMatchStage,
+  EvidenceStrength,
   EvidenceTier,
+  GapStrategyCategory,
+  GenerationStatus,
   JobPriority,
+  QuestionType,
   Recommendation,
+  ReviewVerdict,
   SourceHealthStatus,
+  SourceQualityTier,
 } from "./types";
 
 export const RECOMMENDATION_LABEL: Record<Recommendation, string> = {
@@ -126,6 +133,87 @@ export const DUPLICATE_MATCH_STAGE_LABEL: Record<DuplicateMatchStage, string> = 
   deterministic_fingerprint: "Deterministic fingerprint match",
   fuzzy: "Fuzzy match",
   original: "First sighting",
+};
+
+export const VERIFICATION_STATUS_LABEL: Record<ClaimVerificationStatus, string> = {
+  verified_fact: "Verified fact",
+  reasonable_inference: "Reasonable inference",
+  unknown: "Unverified",
+};
+
+export const VERIFICATION_STATUS_CLASSES: Record<ClaimVerificationStatus, string> = {
+  verified_fact: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  reasonable_inference: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
+  unknown: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30",
+};
+
+export const SOURCE_QUALITY_LABEL: Record<SourceQualityTier, string> = {
+  high: "High quality",
+  medium: "Medium quality",
+  low: "Low quality",
+};
+
+export const SOURCE_QUALITY_CLASSES: Record<SourceQualityTier, string> = {
+  high: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  medium: "bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/30",
+  low: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30",
+};
+
+export const EVIDENCE_STRENGTH_LABEL: Record<EvidenceStrength, string> = {
+  strong: "Strong",
+  partial: "Partial / transferable",
+  weak: "Weak",
+  gap: "Gap",
+};
+
+export const EVIDENCE_STRENGTH_CLASSES: Record<EvidenceStrength, string> = {
+  strong: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  partial: "bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/30",
+  weak: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
+  gap: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30",
+};
+
+export const GAP_STRATEGY_LABEL: Record<GapStrategyCategory, string> = {
+  acknowledge_honestly: "Acknowledge honestly",
+  demonstrate_transferable: "Demonstrate transferable skill",
+  provide_project_evidence: "Provide project evidence",
+  show_rapid_learning: "Show rapid-learning evidence",
+  do_not_address: "Do not address unless asked",
+};
+
+export const GENERATION_STATUS_LABEL: Record<GenerationStatus, string> = {
+  draft: "Draft",
+  reviewed: "Reviewed",
+  needs_review: "Needs review",
+  archived: "Archived (superseded)",
+};
+
+export const REVIEW_VERDICT_LABEL: Record<ReviewVerdict, string> = {
+  pass: "Pass",
+  pass_with_warnings: "Pass with warnings",
+  fail: "Fail - needs review",
+};
+
+export const REVIEW_VERDICT_CLASSES: Record<ReviewVerdict, string> = {
+  pass: "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30",
+  pass_with_warnings: "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30",
+  fail: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30",
+};
+
+export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
+  motivation: "Motivation",
+  company_motivation: "Company motivation",
+  technical_experience: "Technical experience",
+  behavioural: "Behavioural",
+  values: "Values",
+  teamwork: "Teamwork",
+  leadership: "Leadership",
+  problem_solving: "Problem solving",
+  learning: "Learning",
+  project_experience: "Project experience",
+  work_rights: "Work rights",
+  salary: "Salary",
+  general_background: "General background",
 };
 
 export function formatDateTime(iso?: string | null): string {

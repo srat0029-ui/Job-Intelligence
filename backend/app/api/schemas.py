@@ -14,7 +14,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import ApplicationStatus
+from app.domain.enums import ApplicationStatus, ResearchSourceType
 from app.domain.source_health import SourceHealth
 
 
@@ -70,3 +70,20 @@ class DiscoveryDashboardStats(BaseModel):
     last_scheduled_run_at: datetime | None
     next_scheduled_run_at: datetime | None
     source_health: list[SourceHealth]
+
+
+# --- Milestone 4A: Application Intelligence ---
+
+
+class AddResearchSourceRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+    source_type: ResearchSourceType
+    force_refresh: bool = False
+
+
+class UpdateWorkspaceNotesRequest(BaseModel):
+    notes: str = Field(default="", max_length=10_000)
+
+
+class SubmitQuestionRequest(BaseModel):
+    question_text: str = Field(min_length=1, max_length=5000)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApplicationStatusSelector } from "@/components/ApplicationStatusSelector";
 import { RecommendationBadge, TierBadge } from "@/components/RecommendationBadge";
@@ -9,6 +9,7 @@ import {
   Card,
   ErrorBanner,
   PrimaryButton,
+  SecondaryButton,
   SectionHeading,
   Spinner,
 } from "@/components/ui";
@@ -164,13 +165,21 @@ function ExtractedJobPanel({ analysis }: { analysis: JobAnalysis }) {
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
   const jobId = params.id;
+  const router = useRouter();
 
   const [job, setJob] = useState<Job | null>(null);
   const [analysis, setAnalysis] = useState<JobAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [openingWorkspace, setOpeningWorkspace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+
+  function openWorkspace() {
+    if (!jobId) return;
+    setOpeningWorkspace(true);
+    router.push(`/jobs/${jobId}/workspace`);
+  }
 
   useEffect(() => {
     if (!jobId) return;
@@ -226,11 +235,18 @@ export default function JobDetailPage() {
             </a>
           )}
         </div>
-        <ApplicationStatusSelector
-          jobId={job.id}
-          status={job.application_status}
-          onChange={(status) => setJob({ ...job, application_status: status })}
-        />
+        <div className="flex items-center gap-2">
+          <ApplicationStatusSelector
+            jobId={job.id}
+            status={job.application_status}
+            onChange={(status) => setJob({ ...job, application_status: status })}
+          />
+          {analysis && (
+            <SecondaryButton onClick={openWorkspace} disabled={openingWorkspace}>
+              {openingWorkspace ? "Opening..." : "Application Workspace →"}
+            </SecondaryButton>
+          )}
+        </div>
       </div>
 
       {error && <ErrorBanner message={error} />}

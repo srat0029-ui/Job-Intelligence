@@ -80,6 +80,53 @@ export type AttentionItemType =
 
 export type AttentionItemStatus = "unread" | "read";
 
+// --- Milestone 4A: Application Intelligence ---
+
+export type ResearchSourceType =
+  | "official_website"
+  | "careers_page"
+  | "engineering_blog"
+  | "press_release"
+  | "news"
+  | "company_directory"
+  | "other";
+
+export type SourceQualityTier = "high" | "medium" | "low";
+
+export type ClaimVerificationStatus = "verified_fact" | "reasonable_inference" | "unknown";
+
+export type ResearchFetchStatus = "success" | "failed";
+
+export type GapStrategyCategory =
+  | "acknowledge_honestly"
+  | "demonstrate_transferable"
+  | "provide_project_evidence"
+  | "show_rapid_learning"
+  | "do_not_address";
+
+export type EvidenceStrength = "strong" | "partial" | "weak" | "gap";
+
+export type GenerationStatus = "draft" | "reviewed" | "needs_review" | "archived";
+
+export type ReviewVerdict = "pass" | "pass_with_warnings" | "fail";
+
+export type QuestionType =
+  | "motivation"
+  | "company_motivation"
+  | "technical_experience"
+  | "behavioural"
+  | "values"
+  | "teamwork"
+  | "leadership"
+  | "problem_solving"
+  | "learning"
+  | "project_experience"
+  | "work_rights"
+  | "salary"
+  | "general_background";
+
+export type CVSection = "summary" | "education" | "employment" | "project" | "skill" | "certification";
+
 // --- Candidate ---
 
 export interface Education {
@@ -485,4 +532,210 @@ export interface DiscoveryDashboardStats {
   last_scheduled_run_at?: string | null;
   next_scheduled_run_at?: string | null;
   source_health: SourceHealth[];
+}
+
+// --- Milestone 4A: Application Intelligence ---
+
+export interface ApplicationWorkspace {
+  id: string;
+  job_id: string;
+  notes?: string | null;
+  research_company_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface GenerationMeta {
+  version: number;
+  status: GenerationStatus;
+  prompt_version: string;
+  model: string;
+  generated_at?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  reviewer_result?: ReviewVerdict | null;
+  reviewer_issues: string[];
+  regeneration_attempt: number;
+}
+
+export interface ResearchSource {
+  id?: string | null;
+  company_name: string;
+  url: string;
+  domain: string;
+  title?: string | null;
+  source_type: ResearchSourceType;
+  source_quality: SourceQualityTier;
+  fetch_status: ResearchFetchStatus;
+  raw_text_excerpt?: string | null;
+  published_at?: string | null;
+  retrieved_at?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+}
+
+export interface ResearchClaim {
+  id?: string | null;
+  research_source_id: string;
+  company_name: string;
+  category: string;
+  claim: string;
+  supporting_excerpt: string;
+  verification_status: ClaimVerificationStatus;
+  confidence: number;
+  is_stale: boolean;
+  created_at?: string | null;
+}
+
+export interface CompanyResearchBundle {
+  company_name: string;
+  sources: ResearchSource[];
+  claims: ResearchClaim[];
+}
+
+export interface RequirementCoverage {
+  requirement_name: string;
+  importance: RequirementImportance;
+  strength: EvidenceStrength;
+}
+
+export interface GapStrategyItem {
+  requirement_name: string;
+  strategy_category: GapStrategyCategory;
+  guidance: string;
+  adjacent_evidence_ids: string[];
+}
+
+export interface GapAnalysis {
+  id?: string | null;
+  workspace_id: string;
+  job_analysis_id: string;
+  coverage: RequirementCoverage[];
+  gap_strategies: GapStrategyItem[];
+}
+
+export interface ConcernItem {
+  concern: string;
+  response_strategy: string;
+}
+
+export interface ApplicationStrategy {
+  id?: string | null;
+  workspace_id: string;
+  gap_analysis_id: string;
+  positioning: string;
+  lead_evidence_ids: string[];
+  skills_to_emphasise: string[];
+  skills_to_deemphasise: string[];
+  likely_concerns: ConcernItem[];
+  motivation_themes: string[];
+  application_priority?: string | null;
+  recommendation: string;
+  source_evidence_ids: string[];
+  source_research_claim_ids: string[];
+  meta: GenerationMeta;
+  created_at?: string | null;
+}
+
+export interface CVBulletSuggestion {
+  section: CVSection;
+  source_ref_label: string;
+  original_text: string;
+  suggested_text: string;
+  relevance_rank: number;
+  supporting_evidence_ids: string[];
+  passed_grounding_check: boolean;
+  grounding_issues: string[];
+}
+
+export interface CVTailoringBatch {
+  id?: string | null;
+  workspace_id: string;
+  suggestions: CVBulletSuggestion[];
+  section_emphasis: string[];
+  source_evidence_ids: string[];
+  meta: GenerationMeta;
+  created_at?: string | null;
+}
+
+export interface ApplicationQuestionResponse {
+  id?: string | null;
+  workspace_id: string;
+  question_text: string;
+  classifications: QuestionType[];
+  answered_deterministically: boolean;
+  response_text: string;
+  source_evidence_ids: string[];
+  source_research_claim_ids: string[];
+  meta: GenerationMeta;
+  created_at?: string | null;
+}
+
+export interface CoverLetter {
+  id?: string | null;
+  workspace_id: string;
+  body: string;
+  source_evidence_ids: string[];
+  source_research_claim_ids: string[];
+  meta: GenerationMeta;
+  created_at?: string | null;
+}
+
+export interface CommunicationStyle {
+  tone: string;
+  avoid_buzzwords: boolean;
+  avoid_exaggerated_claims: boolean;
+  prefer_specific_examples: boolean;
+  avoid_em_dashes: boolean;
+  region_convention: string;
+}
+
+export interface BriefEvidenceItem {
+  evidence_id: string;
+  label: string;
+}
+
+export interface ApplicationBrief {
+  why_this_role_fits: string[];
+  best_evidence_to_use: BriefEvidenceItem[];
+  key_gaps: string[];
+  how_to_position: string[];
+  company_talking_points: string[];
+  likely_application_themes: string[];
+}
+
+export interface WorkspaceOverview {
+  workspace: ApplicationWorkspace;
+  job: Job;
+  overall_score?: number | null;
+  recommendation?: string | null;
+  application_status?: string | null;
+  strongest_evidence_labels: string[];
+  main_gaps: string[];
+  research_source_count: number;
+  research_claim_count: number;
+  has_strategy: boolean;
+  has_cv_tailoring: boolean;
+  has_cover_letter: boolean;
+  question_count: number;
+  brief?: ApplicationBrief | null;
+}
+
+export interface WorkspaceTraceCall {
+  operation_type: string;
+  input_identifier: string;
+  prompt_version: string;
+  model: string;
+  status: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  created_at?: string | null;
+}
+
+export interface WorkspaceTrace {
+  workspace_id: string;
+  ai_calls: WorkspaceTraceCall[];
+  total_estimated_cost_usd: number;
 }

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import (
+    application_workspaces,
     attention,
     candidate,
     company_watchlist,
@@ -60,6 +61,9 @@ app.include_router(settings_routes.router)
 app.include_router(discovery.router)
 app.include_router(company_watchlist.router)
 app.include_router(attention.router)
+app.include_router(application_workspaces.jobs_router)
+app.include_router(application_workspaces.router)
+app.include_router(application_workspaces.style_router)
 
 
 @app.exception_handler(Exception)

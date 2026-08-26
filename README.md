@@ -5,10 +5,12 @@ jobs, run AI extraction + evidence-based matching, get an explainable fit score,
 ranked, prioritised feed of opportunities.
 
 This document covers the V1 foundation (manual analysis), Milestone 2 (automated discovery,
-deduplication, pre-filtering, cost controls), and Milestone 3 (autonomous discovery: company
+deduplication, pre-filtering, cost controls), Milestone 3 (autonomous discovery: company
 watchlists, fuzzy multi-source deduplication, scheduling, analysis prioritisation, source health,
-attention/notifications). See [Incomplete / deferred](#incomplete--deferred) for what's
-intentionally not built yet.
+attention/notifications), and Milestone 4A (Application Intelligence: evidence-grounded company
+research, gap analysis, application strategy, CV tailoring, cover letters, a dedicated grounding
+reviewer). See [Incomplete / deferred](#incomplete--deferred) for what's intentionally not built
+yet.
 
 ## Architecture
 
@@ -451,6 +453,217 @@ watchlist entry was left in the database **disabled** (not deleted) with an expl
 the real discovery-run audit trail this produced stays intact without the entry causing future
 runs to keep pulling Palantir jobs.
 
+## Milestone 4A: Application Intelligence
+
+Turns a high-quality analysed opportunity into a grounded, personalised application strategy:
+company research, gap analysis, positioning, tailored CV suggestions, cover letters, and draft
+answers to pasted application questions - all reviewed by a dedicated grounding stage before
+being shown as trustworthy. **No application is ever submitted, and no email is ever sent** -
+every artefact here is a drafting aid, persisted with full version history.
+
+### Internal (candidate) grounding vs. external (company) grounding
+
+Two structurally separate anti-hallucination systems, not one:
+
+- **Candidate grounding** (extends the existing evidence-matching discipline from V1) - every
+  application-intelligence prompt is handed a *fixed, bounded* list of the candidate's own
+  `Evidence` records (see `app/services/evidence_retrieval_service.py`), never an open-ended
+  "write about this person" instruction. Every ID a model claims to have used is whitelisted
+  against that list before being trusted - a bogus ID is silently stripped, exactly like
+  `MatchingService` already does for the core scoring pipeline.
+- **Company grounding** (new, `app/services/company_research_service.py`) - a `ResearchClaim` is
+  never taken on the model's word. It must come from a stored `ResearchSource`'s actual fetched
+  text, and its `supporting_excerpt` is checked (case/whitespace-normalised substring match)
+  against that text before the claim is trusted. A claim whose excerpt can't be located has its
+  `verification_status` force-downgraded to `unknown` and is **never** handed to a later prompt as
+  citable fact (`citable_claims()` filters these out everywhere a claims list is built) - kept only
+  for audit, so it's visible that the model attempted an ungrounded claim rather than making that
+  disappear silently.
+
+### Why generated CV claims require evidence IDs
+
+`CVTailoringService` doesn't just ask the model to "be accurate" - every suggestion is validated
+after generation (`app/services/cv_tailoring_service.py`):
+
+1. `supporting_evidence_ids` must be a subset of the evidence actually offered; anything else is
+   dropped and flagged.
+2. `original_text` must match something that genuinely exists in the candidate's stored
+   Project/WorkExperience text - a suggestion referencing a bullet that was never in the profile
+   is flagged, not trusted.
+3. `suggested_text` is scanned (`app/services/grounding_checks.py`) for numbers/percentages and
+   known technology keywords that appear in the suggestion but nowhere in `original_text` or the
+   cited evidence - an **invented metric** or **invented technology**. A suggestion that fails any
+   of these checks is still shown (never hidden), just marked `passed_grounding_check=False` with
+   the concrete reason, so the candidate can see exactly what to distrust.
+
+The candidate's existing structured profile (`Project`, `WorkExperience`, `Skill`, ... - see
+`app/domain/candidate.py`) already *is* the canonical CV representation; this milestone doesn't
+create a second CV document, only proposes reworded text for an existing bullet alongside the
+evidence that grounds it, and never overwrites the original.
+
+### Why company research requires source provenance
+
+Every `ResearchSource` records not just the claim but where it came from: `url`, `domain`,
+`source_type`, a **source quality tier** (kept separate from claim confidence - see below), fetch
+status, and a bounded excerpt of the actual fetched text. `ResearchProvider`
+(`app/ingestion/research_provider.py`) is the abstraction this goes through -
+`HttpResearchProvider` fetches one manually-supplied URL live (no search-API credential
+configured in this environment, so this was implemented as "the most practical mechanism
+available", not a placeholder: it reuses the same httpx + HTML-stripping approach already proven
+for Lever/Greenhouse). `FixtureResearchProvider` is the deterministic, no-network double used by
+tests. Source **quality** (`official_website`/`careers_page`/`engineering_blog`/`press_release` >
+`news` > `company_directory`) is about how trustworthy the *origin* is; claim **confidence** is
+about how clearly the *text* supports the claim - a high-quality source can still yield a
+`reasonable_inference` claim, and the two are never conflated.
+
+**Freshness**: a claim in the `recent_developments`/`ai_data_initiatives` category sourced from a
+`news`/`press_release` page older than a year is flagged `is_stale=True` at read time
+(`CompanyResearchService._apply_freshness`) - a five-year-old article is never silently allowed to
+support a claim presented as a current initiative.
+
+### How the grounding reviewer works
+
+`GroundingReviewerService` (`app/services/grounding_reviewer_service.py`) runs on every
+substantial generated artefact (CV suggestions, cover letters, question answers - not on the
+internal `ApplicationStrategy` structure itself, which is reviewed implicitly via the evidence/
+claim whitelisting on its own fields). Two layers, and **code always wins**:
+
+1. Deterministic structural checks (`grounding_checks.py`) - the same invented-metric/invented-
+   technology scan used by CV tailoring, run against the free text. Any hit is an automatic FAIL
+   regardless of what the LLM reviewer concludes.
+2. A genuinely separate LLM call (`grounding_review_v1`) checking what a regex can't: overstated
+   transferable experience, stale research presented as current, requirement coverage (required
+   vs. preferred confusion), writing quality.
+
+Verdict is `pass` / `pass_with_warnings` / `fail`, with structured `issues` - **never hidden in
+the UI**, regardless of verdict. Verified live: a real generated cover letter was correctly
+flagged `fail` for restating the job posting's own numbers ("2026/2027", "25-75% travel") as if
+they needed evidence backing, and for a technology name that appeared in the strategy's own
+guidance text but not in raw evidence - both real, honest findings about where this check's
+"grounded" pool could be widened (see [Remaining limitations](#incomplete--deferred)), not bugs
+that were hidden or worked around.
+
+### Bounded regeneration
+
+`MAX_REGENERATION_ATTEMPTS = 2` (3 attempts total) is enforced in
+`ApplicationWorkflowService.generate_cv_tailoring`/`generate_cover_letter`: on a `fail` verdict, it
+regenerates and re-reviews, up to the bound, then stops and persists the last attempt with
+`status = needs_review` rather than looping indefinitely or silently accepting a bad result.
+Verified live against a real cover letter: the reviewer failed twice, the workflow retried twice
+more (6 real LLM calls total, not one more), then correctly stopped and surfaced `needs_review`
+with the exact issues - proving the bound holds under real model variance, not just against a
+scripted fake.
+
+### Why transferable experience is never treated as direct experience
+
+This is enforced at every layer, not just prompted for:
+
+- `GapAnalysisService` classifies each requirement's coverage (`strong`/`partial`/`weak`/`gap`)
+  entirely from the *existing* `RequirementMatch.tier`/`is_gap` - it never re-decides gap-ness.
+- Only genuine gaps get an LLM-proposed `GapStrategyCategory` (`acknowledge_honestly`,
+  `demonstrate_transferable`, `provide_project_evidence`, `show_rapid_learning`,
+  `do_not_address`) plus one guidance sentence - the prompt (`gap_strategy_v1.py`) explicitly
+  forbids suggesting the candidate claim direct experience they don't have.
+- Every downstream prompt (strategy, CV tailoring, cover letters, question answers) that reuses
+  this guidance is instructed to keep the same honest framing, and the grounding reviewer's
+  candidate-grounding check specifically looks for "transferable presented as direct" as a fail
+  condition.
+
+### Application workflow: the one genuine agentic system in this project
+
+```
+Evidence Retrieval -> Gap Analysis -> Application Strategy
+                                            |
+                       (on explicit request, per artefact)
+                                            v
+                              Content Generation -> Grounding Review
+```
+
+`ApplicationWorkflowService` (`app/services/application_workflow_service.py`) implements this as
+explicit, separately-testable Python methods - the same plain-service-orchestrator pattern already
+used by `AnalysisOrchestrator`/`DiscoveryService`, not a new framework. Each step has a clear
+input/output domain schema, is independently unit-tested, and failure in one step (e.g. the LLM
+errors during strategy synthesis) leaves earlier steps' already-persisted output (research, gap
+analysis) intact rather than losing everything. Company research itself is added via a separate,
+explicit call (`add_research_source`) since it needs a URL the user supplies - it isn't
+auto-triggered as part of the chain.
+
+**Why not LangGraph or a similar orchestration framework**: every step here is a single,
+sequential LLM call plus deterministic post-processing - there is no parallel fan-out, no dynamic
+re-planning, and no multi-agent negotiation this project actually needs. A graph framework would
+add a new dependency and a new execution model to reason about for zero behavioural benefit at
+this scale. This was a genuine evaluation, not a default: the existing service-orchestrator
+pattern is simply the right tool for a workflow this linear.
+
+### Traceability
+
+Every AI call in this milestone is tagged `f"workspace:{workspace_id}:{step}"` as its
+`AITrace.input_identifier` (e.g. `...:gap_analysis`, `...:cv_tailoring:review`) -
+`AITraceRepository.list_for_input_prefix()` (new) retrieves every call for one workspace
+regardless of step, backing `GET /api/application-workspaces/{id}/trace`, a development/debug view
+showing prompt version, model, tokens, cost, and status per call. Every persisted artefact
+(`ApplicationStrategy`, `CVTailoringBatch`, `CoverLetter`, `ApplicationQuestionResponse`) also
+carries its own `version`, `status`, `prompt_version`, `model`, token/cost counts, and reviewer
+result directly as columns - regenerating never overwrites: each call inserts a new row and marks
+the previous one `archived`, so full history is always readable
+(`GET .../strategy/history`, `.../cv-tailoring/history`, `.../cover-letter/history`,
+`.../questions/history`).
+
+### Why application intelligence never alters the fit score
+
+`ApplicationStrategy.recommendation`/`application_priority` are copied verbatim from the already-
+computed `FitScore.recommendation` / `classify_priority(overall_score)` - `ApplicationStrategyService`
+never asks the model for a number and never recomputes one. This was explicitly verified in the
+full integration test (`tests/integration/test_application_workflow.py`): the job's fit score is
+read before and after the entire research -> strategy -> CV -> cover-letter chain runs, and
+asserted byte-identical.
+
+### Cost controls
+
+Reuses the existing `AITraceRepository`/`AppSettings.daily_ai_analysis_budget_usd` infrastructure
+rather than inventing a parallel one - `check_daily_budget_or_raise()` (`app/services/
+cost_guard.py`) is checked before every generation call and raises a 429 once today's spend (summed
+across **all** operation types, discovery included) meets the configured budget. New
+`AIOperationType` values (`company_research_synthesis`, `gap_analysis`, `application_strategy`,
+`cv_tailoring`, `application_question`, `cover_letter`, `grounding_review`) mean per-operation cost
+breakdown is already available from the existing `AITrace` table with no schema change. Nothing in
+this milestone is auto-triggered for every discovered job - every generation step requires an
+explicit user action (a button click / API call), per the brief's "default to explicit user
+initiation" instruction.
+
+### Research caching/freshness
+
+`CompanyResearchService.add_source_and_research` skips re-fetching and re-calling the LLM for a
+URL whose research is still within `max_age_days` (default 30) - the same company isn't
+re-researched for every job at it. `force_refresh=True` bypasses this explicitly when the user
+wants an update. Role-specific outputs (gap analysis, strategy) are never cached this way - only
+the company-research layer, which is genuinely reusable across different roles at the same
+company.
+
+### Failure handling
+
+- A failed fetch (`HttpResearchProvider` raising `LookupError`/`TimeoutError`/`ConnectionError`/
+  `ValueError`) is recorded as a `ResearchSource` with `fetch_status=failed` and a real error
+  message - never silently swallowed, never crashes the request.
+- `ApplicationWorkflowService` raises typed errors (`WorkspaceNotFoundError`,
+  `JobNotAnalysedError`, `DailyBudgetExceededError`) that the API layer translates to clear HTTP
+  status codes (404/409/429) rather than a generic 500.
+- A genuine race was found via manual browser testing:
+  `ApplicationWorkspaceRepository.get_or_create` could raise a unique-constraint `IntegrityError`
+  if two near-simultaneous requests for the same job (a double-fired React effect, in practice)
+  both ran their SELECT before either committed. Fixed to catch the conflict, roll back, and read
+  back whichever row won - covered by
+  `tests/unit/test_application_workspace_repository.py`.
+
+### Why automatic application submission is intentionally excluded
+
+No code path in this milestone ever calls an external ATS, sends an email, or submits a form.
+`CoverLetter`/`ApplicationQuestionResponse`/`CVTailoringBatch` are drafting aids the user reads,
+edits, and acts on manually - the same posture as the existing `ApplicationStatus` tracker, which
+has always been a manual log, never an automation. This is a deliberate scope boundary, not a
+missing feature: interview simulation and automatic submission are both explicitly out of scope
+for this milestone.
+
 ## Running locally
 
 ### Option A: Docker Compose (everything)
@@ -550,13 +763,37 @@ Labelled explicitly rather than hidden behind working-looking UI:
 - **Outcome-based score calibration** - the schema (`application_status_events`) exists to
   support it, but no calibration logic exists yet; there isn't enough outcome data to calibrate
   against.
-- **Tailored application material generation, interview prep** - out of scope for this
-  milestone.
-- **pgvector-based retrieval** - the `evidence.embedding` column and extension exist, but
-  matching uses direct skill-tag/requirement-name comparison since the candidate's evidence set
-  is small; semantic retrieval is reserved for when that stops being true.
+- **Interview simulation** - explicitly out of scope for Milestone 4A per the brief; Application
+  Intelligence stops at drafting materials, never rehearses live interaction.
+- **pgvector-based retrieval** - the `evidence.embedding` column and extension exist, but both
+  candidate-evidence matching and application-intelligence evidence retrieval use direct skill-
+  tag/keyword comparison (see `app/services/evidence_retrieval_service.py`) since the candidate's
+  evidence set is small and no embedding-generation step exists yet; semantic retrieval is
+  reserved for when that stops being true.
 - **CV import is category-granular, not item-granular** - `POST /api/candidate/cv/parse`
   returns a full proposal, and the Profile page lets you add each *category* (education, work
   history, projects, ...) found in the CV to your draft profile before saving; it doesn't yet
   offer per-item checkboxes within a category. Remove-after-adding (already supported by every
   editor) covers the same need today with one extra click.
+- **Live web search for company research** - no search-API credential (Brave/Serper/Google) is
+  configured; `HttpResearchProvider` fetches one manually-supplied URL rather than searching the
+  web. A `SearchApiResearchProvider` is additive later (same `ResearchProvider` interface).
+- **JS-rendered company pages yield little/no text** - `HttpResearchProvider` fetches raw HTML
+  and strips it; it does not execute JavaScript. Verified live: Palantir's careers page (a
+  client-rendered SPA) reduced to ~20 characters of usable text after stripping, so zero claims
+  were extracted from it - correct, conservative behaviour (nothing was fabricated to compensate),
+  but a real coverage gap for JS-heavy sites. A headless-browser-based provider is the natural
+  upgrade path, same interface.
+- **The grounding reviewer's "grounded" text pool is narrower than the generation prompt's
+  context** - verified live: a real cover letter correctly *and conservatively* flagged as `fail`
+  for restating the job posting's own numbers (a graduate-year window, a travel percentage) and a
+  technology name that appeared in the application strategy's own guidance text, because
+  `find_invented_metrics`/`find_invented_technologies` only check against candidate evidence and
+  research claims - not the job description or the strategy's own already-reviewed guidance text,
+  both of which the generation prompt legitimately draws on. This is a real precision/recall
+  trade-off (documented, not hidden): safer to over-flag than under-flag, but the reviewer's
+  grounded-text pool should be widened to include job context and prior-approved artefacts as a
+  follow-up.
+- **Communication style has no per-question or per-artefact override** - one candidate-wide
+  `CommunicationStyle` row applies to every generation call; there's no way yet to ask for a
+  different tone for one specific cover letter.

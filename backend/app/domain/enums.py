@@ -86,6 +86,13 @@ class AIOperationType(str, Enum):
     JOB_EXTRACTION = "job_extraction"
     REQUIREMENT_MATCHING = "requirement_matching"
     CV_EXTRACTION = "cv_extraction"
+    COMPANY_RESEARCH_SYNTHESIS = "company_research_synthesis"
+    GAP_ANALYSIS = "gap_analysis"
+    APPLICATION_STRATEGY = "application_strategy"
+    CV_TAILORING = "cv_tailoring"
+    APPLICATION_QUESTION = "application_question"
+    COVER_LETTER = "cover_letter"
+    GROUNDING_REVIEW = "grounding_review"
 
 
 class AITraceStatus(str, Enum):
@@ -209,3 +216,106 @@ class DiscoveryRunStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# --- Milestone 4A: Application Intelligence ---
+
+
+class ResearchSourceType(str, Enum):
+    """What kind of page a ResearchSource was fetched from - drives source
+    quality ranking (see app/services/company_research_service.py:
+    SOURCE_QUALITY_RANK). Kept separate from claim confidence: a claim's
+    confidence is about how clearly the text supports it, source quality is
+    about how trustworthy the origin of the text is."""
+
+    OFFICIAL_WEBSITE = "official_website"
+    CAREERS_PAGE = "careers_page"
+    ENGINEERING_BLOG = "engineering_blog"
+    PRESS_RELEASE = "press_release"
+    NEWS = "news"
+    COMPANY_DIRECTORY = "company_directory"
+    OTHER = "other"
+
+
+class SourceQualityTier(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class ClaimVerificationStatus(str, Enum):
+    """Whether a ResearchClaim is directly stated by its source, merely a
+    reasonable inference from it, or could not be grounded at all (and so
+    must never be presented as established fact)."""
+
+    VERIFIED_FACT = "verified_fact"
+    REASONABLE_INFERENCE = "reasonable_inference"
+    UNKNOWN = "unknown"
+
+
+class ResearchFetchStatus(str, Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class GapStrategyCategory(str, Enum):
+    """How to handle a genuine requirement gap in application material -
+    never invent evidence to close it, only choose an honest framing."""
+
+    ACKNOWLEDGE_HONESTLY = "acknowledge_honestly"
+    DEMONSTRATE_TRANSFERABLE = "demonstrate_transferable"
+    PROVIDE_PROJECT_EVIDENCE = "provide_project_evidence"
+    SHOW_RAPID_LEARNING = "show_rapid_learning"
+    DO_NOT_ADDRESS = "do_not_address"
+
+
+class EvidenceStrength(str, Enum):
+    """Application-focused classification of how well candidate evidence
+    covers one important job requirement - extends (does not replace) the
+    existing RequirementMatch.tier used by the core scoring pipeline."""
+
+    STRONG = "strong"
+    PARTIAL = "partial"
+    WEAK = "weak"
+    GAP = "gap"
+
+
+class GenerationStatus(str, Enum):
+    """Lifecycle of one generated application artefact (a CV tailoring
+    batch, a cover letter, a question response, ...)."""
+
+    DRAFT = "draft"
+    REVIEWED = "reviewed"
+    NEEDS_REVIEW = "needs_review"
+    ARCHIVED = "archived"  # superseded by a newer version, never deleted
+
+
+class ReviewVerdict(str, Enum):
+    PASS = "pass"
+    PASS_WITH_WARNINGS = "pass_with_warnings"
+    FAIL = "fail"
+
+
+class QuestionType(str, Enum):
+    MOTIVATION = "motivation"
+    COMPANY_MOTIVATION = "company_motivation"
+    TECHNICAL_EXPERIENCE = "technical_experience"
+    BEHAVIOURAL = "behavioural"
+    VALUES = "values"
+    TEAMWORK = "teamwork"
+    LEADERSHIP = "leadership"
+    PROBLEM_SOLVING = "problem_solving"
+    LEARNING = "learning"
+    PROJECT_EXPERIENCE = "project_experience"
+    WORK_RIGHTS = "work_rights"
+    SALARY = "salary"
+    GENERAL_BACKGROUND = "general_background"
+
+
+class CVSection(str, Enum):
+    SUMMARY = "summary"
+    EDUCATION = "education"
+    EMPLOYMENT = "employment"
+    PROJECT = "project"
+    SKILL = "skill"
+    CERTIFICATION = "certification"
