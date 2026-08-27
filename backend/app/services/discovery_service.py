@@ -62,6 +62,8 @@ from app.domain.enums import (
 from app.domain.job import Job
 from app.ingestion.adzuna_source import AdzunaJobSource
 from app.ingestion.greenhouse_source import GreenhouseJobSource
+from app.ingestion.job_alert_email_source import GmailNotConnectedError, JobAlertEmailSource
+from app.ingestion.job_page_enrichment import enrich_posting
 from app.ingestion.job_source import RawJobPosting
 from app.ingestion.lever_source import LeverJobSource
 from app.repositories.ai_trace_repository import AITraceRepository
@@ -70,6 +72,7 @@ from app.repositories.candidate_repository import CandidateRepository
 from app.repositories.company_watchlist_repository import CompanyWatchlistRepository
 from app.repositories.discovered_job_repository import DiscoveredJobRepository
 from app.repositories.discovery_run_repository import DiscoveryRunRepository
+from app.repositories.gmail_credential_repository import GmailCredentialRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.search_profile_repository import SearchProfileRepository
 from app.repositories.source_health_repository import SourceHealthRepository
@@ -77,8 +80,9 @@ from app.services import deduplication_service, location_service, search_planner
 from app.services.analysis_orchestrator import AnalysisOrchestrator, CandidateProfileMissingError
 from app.services.analysis_priority_service import compute_analysis_priority
 from app.services.attention_service import AttentionService
-from app.services.prefilter_service import evaluate_prefilter
+from app.services.prefilter_service import PreFilterResult, evaluate_prefilter
 from app.services.priority_service import classify_priority
+from app.services.relevance_service import evaluate_relevance
 from app.services.source_health_service import fetch_with_health_tracking
 
 logger = get_logger(__name__)
@@ -139,8 +143,10 @@ class DiscoveryService:
         source_health_repository: SourceHealthRepository | None = None,
         attention_service: AttentionService | None = None,
         analysis_orchestrator: AnalysisOrchestrator | None = None,
+        gmail_credential_repository: GmailCredentialRepository | None = None,
         adzuna_source_factory=None,
         ats_source_factory=None,
+        email_source_factory=None,
     ) -> None:
         self._candidate_repository = candidate_repository or CandidateRepository()
         self._search_profile_repository = search_profile_repository or SearchProfileRepository()
@@ -155,10 +161,17 @@ class DiscoveryService:
         self._source_health_repository = source_health_repository or SourceHealthRepository()
         self._attention_service = attention_service or AttentionService()
         self._analysis_orchestrator = analysis_orchestrator or AnalysisOrchestrator(llm_provider)
-        # Testing seams: replace how Adzuna/ATS JobSource instances are
-        # built without touching the run loop - see tests/unit/test_discovery_service.py.
+        self._gmail_credential_repository = (
+            gmail_credential_repository or GmailCredentialRepository()
+        )
+        # Testing seams: replace how Adzuna/ATS/email JobSource instances
+        # are built without touching the run loop - see
+        # tests/unit/test_discovery_service.py.
         self._adzuna_source_factory = adzuna_source_factory or self._build_adzuna_source
         self._ats_source_factory = ats_source_factory or self._build_ats_source
+        self._email_source_factory = email_source_factory or (
+            lambda db: JobAlertEmailSource(db)
+        )
 
     def _build_adzuna_source(self, config) -> AdzunaJobSource | None:
         settings = get_settings()
@@ -209,10 +222,12 @@ class DiscoveryService:
             profiles = self._search_profile_repository.list_enabled(db)
 
         watchlist_entries = self._company_watchlist_repository.list_enabled(db)
+        gmail_connected = self._gmail_credential_repository.get(db) is not None
 
-        if not profiles and not watchlist_entries:
+        if not profiles and not watchlist_entries and not gmail_connected:
             raise NoSearchProfilesError(
-                "No enabled search profiles or watchlisted companies to run discovery with."
+                "No enabled search profiles, watchlisted companies, or connected Gmail "
+                "account to run discovery with."
             )
 
         app_settings = self._app_settings_repository.get(db)
@@ -233,6 +248,10 @@ class DiscoveryService:
             for entry in watchlist_entries:
                 self._discover_via_watchlist_entry(
                     db, entry, profiles, candidate, run_model.id, counts, app_settings, sources_used
+                )
+            if gmail_connected:
+                self._discover_via_email_alerts(
+                    db, candidate, run_model.id, counts, app_settings, sources_used
                 )
             self._discovery_run_repository.update_sources_used(db, run_model, sorted(sources_used))
             db.commit()
@@ -358,13 +377,61 @@ class DiscoveryService:
                 watchlist_entry=entry,
             )
 
+    def _discover_via_email_alerts(
+        self,
+        db: Session,
+        candidate: Candidate,
+        run_id: UUID,
+        counts: DiscoveryRunCounts,
+        app_settings: AppSettings,
+        sources_used: set[str],
+    ) -> None:
+        """The primary discovery path (Part 1/21 of the simplification
+        brief): SEEK/LinkedIn job-alert emails, read-only, via the
+        connected Gmail account. No SearchProfile is used or required -
+        `_process_posting` routes `prefilter_profile=None` postings through
+        the candidate-profile-driven relevance filter instead (see
+        relevance_service.py)."""
+        source = self._email_source_factory(db)
+        try:
+            postings = source.fetch()
+        except GmailNotConnectedError:
+            return
+        except Exception as exc:  # noqa: BLE001 - one bad sync must not fail the whole run
+            logger.warning("gmail_sync_failed", error=str(exc))
+            self._gmail_credential_repository.set_last_sync(
+                db, last_sync_at=datetime.now(UTC), status="error", message=str(exc)[:500]
+            )
+            return
+
+        sources_used.add("gmail_alerts")
+        postings = postings[: app_settings.max_postings_per_source_per_run]
+        counts.retrieved += len(postings)
+        for posting in postings:
+            self._process_posting(
+                db,
+                posting=posting,
+                candidate=candidate,
+                prefilter_profile=None,
+                search_profile_id=None,
+                run_id=run_id,
+                counts=counts,
+                watchlist_entry=None,
+            )
+        self._gmail_credential_repository.set_last_sync(
+            db,
+            last_sync_at=datetime.now(UTC),
+            status="ok",
+            message=f"{len(postings)} job(s) found across SEEK/LinkedIn alerts.",
+        )
+
     def _process_posting(
         self,
         db: Session,
         *,
         posting: RawJobPosting,
         candidate: Candidate,
-        prefilter_profile: SearchProfile,
+        prefilter_profile: SearchProfile | None,
         search_profile_id: UUID | None,
         run_id: UUID,
         counts: DiscoveryRunCounts,
@@ -418,9 +485,23 @@ class DiscoveryService:
             db.flush()
             return
 
-        prefilter_result = evaluate_prefilter(
-            posting=posting, candidate=candidate, search_profile=prefilter_profile
-        )
+        if prefilter_profile is not None:
+            prefilter_result = evaluate_prefilter(
+                posting=posting, candidate=candidate, search_profile=prefilter_profile
+            )
+        else:
+            # No SearchProfile at all for this posting - the email-alert
+            # path (Part 7/21). Its only pre-AI relevance gate is the
+            # candidate-profile-driven role-family/seniority filter.
+            relevance = evaluate_relevance(posting, candidate)
+            prefilter_result = PreFilterResult(passed=relevance.passed, reason=relevance.reason)
+            if relevance.passed and posting.source_type in (
+                JobSourceType.SEEK,
+                JobSourceType.LINKEDIN,
+            ):
+                enriched = enrich_posting(posting)
+                posting = enriched
+                discovered_model.raw_description = enriched.raw_description
         if not prefilter_result.passed:
             discovered_model.status = DiscoveredJobStatus.PREFILTER_REJECTED.value
             discovered_model.prefilter_reason = prefilter_result.reason
@@ -430,7 +511,10 @@ class DiscoveryService:
 
         discovered_model.status = DiscoveredJobStatus.AWAITING_ANALYSIS.value
         discovered_model.analysis_priority = compute_analysis_priority(
-            posting=posting, search_profile=prefilter_profile, watchlist_entry=watchlist_entry
+            posting=posting,
+            search_profile=prefilter_profile,
+            watchlist_entry=watchlist_entry,
+            candidate_preferred_locations=candidate.preferences.preferred_locations,
         )
         counts.eligible += 1
         db.flush()

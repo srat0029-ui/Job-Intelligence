@@ -14,6 +14,7 @@ these cost-control assertions.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from app.ai.providers.base import LLMProvider, StructuredLLMResult
 from app.ai.providers.fake_provider import FakeLLMProvider
@@ -22,11 +23,13 @@ from app.domain.app_settings import AppSettings
 from app.domain.candidate import Candidate, Evidence
 from app.domain.discovery import SearchProfile
 from app.domain.enums import AIOperationType, DiscoveredJobStatus, EvidenceTier, JobSourceType
+from app.domain.gmail_credential import GmailCredential
 from app.domain.job import ExtractedJob, ExtractedRequirement
 from app.ingestion.job_source import JobSource, RawJobPosting
 from app.repositories.app_settings_repository import AppSettingsRepository
 from app.repositories.candidate_repository import CandidateRepository
 from app.repositories.discovered_job_repository import DiscoveredJobRepository
+from app.repositories.gmail_credential_repository import GmailCredentialRepository
 from app.repositories.search_profile_repository import SearchProfileRepository
 from app.services.discovery_service import DiscoveryService
 
@@ -218,3 +221,34 @@ def test_duplicate_across_runs_is_not_reanalyzed(db):
     assert second_run.counts.new == 0
     assert second_run.counts.duplicates == 1
     assert second_run.counts.analysed == 0
+
+
+def test_email_alert_sync_advances_the_gmail_watermark(db):
+    """Part 24: "inbox sync watermark" - a successful run through the
+    email-alert stream must record `last_sync_at`/`last_sync_status` on the
+    stored Gmail credential, independent of any SearchProfile/watchlist."""
+    _seed_candidate(db)
+    GmailCredentialRepository().save(
+        db,
+        GmailCredential(
+            connected_email="me@example.com",
+            refresh_token_encrypted="irrelevant-for-this-test",
+        ),
+    )
+    posting = _posting("Graduate Software Engineer", "email-1")
+    posting.source_type = JobSourceType.SEEK
+
+    service = DiscoveryService(
+        llm_provider=_fake_llm_provider(),
+        adzuna_source_factory=lambda config: _FakeSource([]),
+        email_source_factory=lambda db: _FakeSource([posting]),
+    )
+    before = datetime.now(UTC)
+    run = service.run(db)
+    assert run.counts.analysed == 1
+
+    credential = GmailCredentialRepository().get(db)
+    assert credential is not None
+    assert credential.last_sync_status == "ok"
+    assert credential.last_sync_at is not None
+    assert credential.last_sync_at.replace(tzinfo=None) >= before.replace(tzinfo=None)

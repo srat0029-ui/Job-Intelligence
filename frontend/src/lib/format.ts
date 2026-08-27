@@ -237,6 +237,22 @@ export function formatDateTime(iso?: string | null): string {
   }
 }
 
+/** "Last checked: 12 minutes ago" style text (Part 11 of the
+ * simplification brief) - deliberately never says "Discovery Run". */
+export function formatRelativeTime(iso?: string | null): string {
+  if (!iso) return "never";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "never";
+  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 export function scoreColorClass(score: number): string {
   if (score >= 80) return "text-emerald-400";
   if (score >= 65) return "text-sky-400";

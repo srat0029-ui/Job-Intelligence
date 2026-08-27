@@ -21,7 +21,11 @@ though both are hidden from the recommended feed the same way:
 - LOCATION_UNCONFIRMED - neither a positive nor a confidently-foreign signal
   was found (bare "Remote", "Worldwide", "APAC", blank, or an unrecognised
   location string). Kept distinct from INELIGIBLE so "we don't know" is
-  never silently reclassified as "we know it's overseas".
+  never silently reclassified as "we know it's overseas". This also covers
+  a bare state-code collision such as "WA" (Western Australia or Washington
+  State) or "Remote, WA" with no city/country/"Australia" alongside it - see
+  AMBIGUOUS_AU_STATE_ABBREVIATIONS below: this gate fails closed rather than
+  guessing when a 2-letter code is genuinely ambiguous.
 
 Calibration source of truth: tests/unit/test_location_service.py - every
 example the milestone brief called out by name is asserted there.
@@ -150,6 +154,18 @@ FOREIGN_COUNTRY_PHRASES: dict[str, str] = {
     "emea": "EMEA",
 }
 
+# These AU state abbreviations collide with a well-known non-Australian
+# meaning, so the bare 2-letter code alone is never sufficient evidence of
+# Australia - "WA" is Western Australia *or* Washington State, "SA" is South
+# Australia *or* South Africa, "NT" is the Northern Territory *or* Canada's
+# Northwest Territories. Unlike the unambiguous codes (VIC, NSW, QLD, TAS,
+# ACT), these require independent corroboration - a recognised AU city, the
+# word "Australia", or the state's full name - before they're trusted (all
+# handled by earlier steps in normalize_location). A bare, uncorroborated
+# match on one of these must fail closed to LOCATION_UNCONFIRMED rather than
+# being inferred as Australian.
+AMBIGUOUS_AU_STATE_ABBREVIATIONS = {"wa", "sa", "nt"}
+
 # Weak fallback signal only - checked last, only against the location
 # string (never the description), only when nothing else matched.
 US_STATE_CODES = {
@@ -273,16 +289,21 @@ def normalize_location(
                 confidence=0.85,
                 reason=f"Location matches the Australian state '{name.title()}'.",
             )
+    ambiguous_abbr_match: str | None = None
     for abbr in AU_STATE_ABBREVIATIONS.values():
-        if _word_in(abbr.lower(), lowered):
-            return LocationNormalizationResult(
-                country="AU",
-                state=abbr,
-                is_remote=is_remote,
-                eligibility=GeographicEligibility.ELIGIBLE,
-                confidence=0.8,
-                reason=f"Location contains the Australian state code '{abbr}'.",
-            )
+        if not _word_in(abbr.lower(), lowered):
+            continue
+        if abbr.lower() in AMBIGUOUS_AU_STATE_ABBREVIATIONS:
+            ambiguous_abbr_match = abbr
+            continue
+        return LocationNormalizationResult(
+            country="AU",
+            state=abbr,
+            is_remote=is_remote,
+            eligibility=GeographicEligibility.ELIGIBLE,
+            confidence=0.8,
+            reason=f"Location contains the Australian state code '{abbr}'.",
+        )
 
     # 5. Known foreign country/region phrase.
     for phrase, country in FOREIGN_COUNTRY_PHRASES.items():
@@ -321,7 +342,13 @@ def normalize_location(
                 )
 
     scope_term = next((t for t in AMBIGUOUS_SCOPE_TERMS if _word_in(t, lowered)), None)
-    if scope_term:
+    if ambiguous_abbr_match:
+        reason = (
+            f"Location contains the ambiguous state code '{ambiguous_abbr_match}', which "
+            "could mean an Australian state or a non-Australian region that uses the same "
+            "code (e.g. Washington State) - no independent Australian evidence was found."
+        )
+    elif scope_term:
         reason = (
             f"Location says '{scope_term}' with no evidence Australia specifically is eligible."
         )

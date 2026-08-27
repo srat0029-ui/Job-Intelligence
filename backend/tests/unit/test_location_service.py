@@ -110,6 +110,47 @@ def test_city_beats_ambiguous_us_state_code_collision():
     assert seattle.country == "United States"
 
 
+class TestWesternAustraliaVsWashingtonState:
+    """A bare "WA" is genuinely ambiguous (Western Australia or Washington
+    State) and must never be inferred as Australian without an independent
+    Australian signal (a city, the word "Australia", or the state's full
+    name) alongside it - the gate must fail closed to LOCATION_UNCONFIRMED
+    rather than guess. See AMBIGUOUS_AU_STATE_ABBREVIATIONS in
+    location_service.py."""
+
+    def test_remote_wa_is_unconfirmed_not_eligible(self):
+        result = normalize_location(location="Remote, WA")
+        assert result.eligibility == GeographicEligibility.LOCATION_UNCONFIRMED
+        assert result.eligibility != GeographicEligibility.ELIGIBLE
+
+    def test_bare_wa_is_unconfirmed(self):
+        result = normalize_location(location="WA")
+        assert result.eligibility == GeographicEligibility.LOCATION_UNCONFIRMED
+
+    def test_perth_wa_is_eligible(self):
+        result = normalize_location(location="Perth WA")
+        assert result.eligibility == GeographicEligibility.ELIGIBLE
+        assert result.country == "AU"
+        assert result.state == "WA"
+
+    def test_seattle_wa_is_ineligible(self):
+        result = normalize_location(location="Seattle WA")
+        assert result.eligibility == GeographicEligibility.INELIGIBLE
+        assert result.country == "United States"
+
+    def test_wa_australia_is_eligible(self):
+        result = normalize_location(location="WA, Australia")
+        assert result.eligibility == GeographicEligibility.ELIGIBLE
+        assert result.country == "AU"
+        assert result.state == "WA"
+
+    def test_western_australia_full_name_is_eligible(self):
+        result = normalize_location(location="Western Australia")
+        assert result.eligibility == GeographicEligibility.ELIGIBLE
+        assert result.country == "AU"
+        assert result.state == "WA"
+
+
 def test_no_location_provided_is_unconfirmed():
     result = normalize_location(location=None)
     assert result.eligibility == GeographicEligibility.LOCATION_UNCONFIRMED

@@ -13,6 +13,8 @@ plain analysis pipeline.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from app.ai.providers.factory import get_llm_provider
@@ -22,11 +24,13 @@ from app.api.deps import get_db, get_discovery_service
 from app.domain.candidate import Candidate, CandidatePreferences, Evidence
 from app.domain.company_watchlist import CompanyWatchlistEntry
 from app.domain.enums import AIOperationType, ATSType, EvidenceTier, JobSourceType, SeniorityLevel
+from app.domain.gmail_credential import GmailCredential
 from app.domain.job import ExtractedJob, ExtractedRequirement
 from app.ingestion.job_source import JobSource, RawJobPosting
 from app.main import app
 from app.repositories.candidate_repository import CandidateRepository
 from app.repositories.company_watchlist_repository import CompanyWatchlistRepository
+from app.repositories.gmail_credential_repository import GmailCredentialRepository
 from app.services.discovery_service import DiscoveryService
 
 
@@ -531,5 +535,183 @@ def test_mixed_location_ats_results_only_australian_jobs_survive_to_feed(db):
         # never silently deleted.
         full_feed = client.get("/api/discovery/opportunities?include_rejected=true").json()
         assert full_feed["total"] == 6
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_seek_and_linkedin_alert_emails_only_relevant_australian_jobs_survive_to_feed(db):
+    """The Part 24 required scenario for the Gmail job-alert milestone: a
+    SEEK alert (Graduate Software Engineer Melbourne / Senior Marketing
+    Manager Sydney / Junior Data Analyst Hobart) and a LinkedIn alert
+    (Associate AI Engineer Melbourne / Senior Software Architect San
+    Francisco / a duplicate of the SEEK Graduate Software Engineer posting)
+    through email parsing -> deduplication -> Australia/relevance
+    filtering -> existing AI matching -> ranking.
+
+    No SearchProfile or CompanyWatchlist entry is configured at all - Gmail
+    being connected is the only thing that makes discovery possible (Part
+    21: the app must work with Adzuna disabled and watchlists empty).
+
+    Expected default feed: exactly the 3 relevant Australian roles
+    (Graduate Software Engineer Melbourne, Junior Data Analyst Hobart,
+    Associate AI Engineer Melbourne) - no overseas roles (San Francisco),
+    no irrelevant/senior roles (Marketing Manager), and the duplicate
+    LinkedIn posting merged rather than double-counted.
+    """
+    candidate = CandidateRepository().upsert(
+        db,
+        Candidate(
+            name="Gmail Integration Test Candidate",
+            evidence=[
+                Evidence(
+                    source_type="project",
+                    source_label="AI Project",
+                    statement="Built machine learning models and data pipelines in Python.",
+                    skill_tags=["python", "machine learning"],
+                )
+            ],
+            preferences=CandidatePreferences(
+                preferred_locations=["Melbourne", "Hobart"],
+                preferred_technologies=["Python", "Machine Learning"],
+            ),
+        ),
+    )
+    evidence_id = str(candidate.evidence[0].id)
+
+    GmailCredentialRepository().save(
+        db,
+        GmailCredential(
+            connected_email="candidate@example.com",
+            refresh_token_encrypted="irrelevant-for-this-test",
+            connected_at=datetime.now(UTC),
+        ),
+    )
+
+    fake_provider = FakeLLMProvider()
+    fake_provider.set_response(
+        AIOperationType.JOB_EXTRACTION,
+        ExtractedJob(
+            title="Graduate Role",
+            company="Some Co",
+            requirements=[
+                ExtractedRequirement(
+                    name="Python", raw_phrase="Python",
+                    category="technical_skill", importance="required",
+                )
+            ],
+        ),
+    )
+    fake_provider.set_response(
+        AIOperationType.REQUIREMENT_MATCHING,
+        LLMMatchingOutput(
+            matches=[
+                LLMRequirementMatchItem(
+                    requirement_name="Python", tier=EvidenceTier.EXPLICIT, confidence=0.9,
+                    evidence_ids=[evidence_id], evidence_summary="Directly demonstrated.",
+                )
+            ]
+        ),
+    )
+
+    swe_description = (
+        "Join our Melbourne engineering team building internal tooling in Python and "
+        "SQL, working alongside a small squad of graduate engineers."
+    )
+
+    seek_postings = [
+        RawJobPosting(
+            title="Graduate Software Engineer", company="BuildCo", location="Melbourne VIC",
+            source_type=JobSourceType.SEEK, raw_description=swe_description,
+            external_id="seek-swe-1",
+        ),
+        RawJobPosting(
+            title="Senior Marketing Manager", company="BrandCo", location="Sydney NSW",
+            source_type=JobSourceType.SEEK,
+            raw_description=(
+                "Lead our marketing team's brand strategy and campaign execution across "
+                "Australia, managing a team of coordinators."
+            ),
+            external_id="seek-marketing-1",
+        ),
+        RawJobPosting(
+            title="Junior Data Analyst", company="DataCo", location="Hobart TAS",
+            source_type=JobSourceType.SEEK,
+            raw_description=(
+                "Support our Hobart analytics team building dashboards and reports in "
+                "SQL and Python for internal stakeholders."
+            ),
+            external_id="seek-data-1",
+        ),
+    ]
+    linkedin_postings = [
+        RawJobPosting(
+            title="Associate AI Engineer", company="AICo", location="Melbourne, Victoria",
+            source_type=JobSourceType.LINKEDIN,
+            raw_description=(
+                "Build and evaluate machine learning models in Python as part of our "
+                "Melbourne AI team, working closely with senior researchers."
+            ),
+            external_id="li-ai-1",
+        ),
+        RawJobPosting(
+            title="Senior Software Architect", company="ArchCo", location="San Francisco",
+            source_type=JobSourceType.LINKEDIN,
+            raw_description=(
+                "Own the architecture for our core platform, requiring 10+ years of "
+                "distributed systems experience, based at our San Francisco HQ."
+            ),
+            external_id="li-arch-1",
+        ),
+        RawJobPosting(
+            # Same company/title/description as the SEEK posting above -
+            # the same real job advertised through two channels.
+            title="Graduate Software Engineer", company="BuildCo", location="Melbourne VIC",
+            source_type=JobSourceType.LINKEDIN, raw_description=swe_description,
+            external_id="li-swe-dup-1",
+        ),
+    ]
+
+    discovery_service = DiscoveryService(
+        llm_provider=fake_provider,
+        adzuna_source_factory=lambda config: _FakeSource([]),
+        ats_source_factory=lambda entry: _FakeSource([]),
+        email_source_factory=lambda db: _FakeSource(seek_postings + linkedin_postings),
+    )
+
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_llm_provider] = lambda: fake_provider
+    app.dependency_overrides[get_discovery_service] = lambda: discovery_service
+    try:
+        client = TestClient(app)
+
+        run_resp = client.post("/api/discovery/run", json={})
+        assert run_resp.status_code == 200, run_resp.text
+        run = run_resp.json()
+        assert run["counts"]["retrieved"] == 6
+        assert run["counts"]["duplicates"] == 1
+        assert run["counts"]["new"] == 5
+        # Marketing Manager (irrelevant + senior) and the San Francisco
+        # Architect (overseas, also senior) are both rejected before
+        # analysis - one by the relevance filter, one by the Australia gate.
+        assert run["counts"]["prefilter_rejected"] == 2
+        assert run["counts"]["eligible"] == 3
+        assert run["counts"]["analysed"] == 3
+
+        default_feed = client.get("/api/discovery/opportunities").json()
+        assert default_feed["total"] == 3
+        titles = {item["title"] for item in default_feed["items"]}
+        assert titles == {
+            "Graduate Software Engineer",
+            "Junior Data Analyst",
+            "Associate AI Engineer",
+        }
+        companies = {item["company"] for item in default_feed["items"]}
+        assert "BrandCo" not in companies  # Marketing Manager
+        assert "ArchCo" not in companies  # San Francisco Architect
+
+        full_feed = client.get("/api/discovery/opportunities?include_rejected=true").json()
+        # 5 surviving-dedup postings stored total - the 6th (LinkedIn's
+        # duplicate) was merged into the SEEK original, never double-stored.
+        assert full_feed["total"] == 5
     finally:
         app.dependency_overrides.clear()

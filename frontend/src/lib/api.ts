@@ -27,6 +27,7 @@ import type {
   DiscoveredJobStatus,
   DiscoveryDashboardStats,
   DiscoveryRun,
+  GmailStatus,
   Job,
   JobAnalysis,
   JobListItem,
@@ -156,6 +157,13 @@ export const api = {
   getDiscoveryRun: (runId: string) => request<DiscoveryRun>(`/api/discovery/runs/${runId}`),
   getDiscoveryRunJobs: (runId: string) =>
     request<DiscoveredJob[]>(`/api/discovery/runs/${runId}/jobs`),
+
+  // --- Gmail (SEEK/LinkedIn job-alert ingestion) ---
+  getGmailStatus: () => request<GmailStatus>("/api/gmail/status"),
+  gmailConnectUrl: () => `${API_BASE_URL}/api/gmail/connect`,
+  disconnectGmail: () => request<{ disconnected: boolean }>("/api/gmail/disconnect", {
+    method: "POST",
+  }),
 
   listOpportunities: (opts: {
     sortBy?: string;

@@ -29,6 +29,7 @@ from app.db.models.discovery import (
     SourceObservationModel,
 )
 from app.db.models.gap_analysis import GapAnalysisModel
+from app.db.models.gmail_credential import GmailCredentialModel, ProcessedGmailMessageModel
 from app.db.models.job import JobModel
 from app.db.models.research import ResearchClaimModel, ResearchSourceModel
 from app.db.models.source_health import SourceHealthModel
@@ -59,6 +60,8 @@ __all__ = [
     "SearchProfileModel",
     "SourceObservationModel",
     "GapAnalysisModel",
+    "GmailCredentialModel",
+    "ProcessedGmailMessageModel",
     "JobModel",
     "ResearchClaimModel",
     "ResearchSourceModel",

@@ -25,6 +25,8 @@ def _to_domain(model: AppSettingsModel) -> AppSettings:
         max_postings_per_source_per_run=model.max_postings_per_source_per_run,
         last_scheduled_run_at=model.last_scheduled_run_at,
         next_scheduled_run_at=model.next_scheduled_run_at,
+        gmail_sync_frequency_minutes=model.gmail_sync_frequency_minutes,
+        next_gmail_sync_at=model.next_gmail_sync_at,
     )
 
 
@@ -49,6 +51,7 @@ class AppSettingsRepository:
         model.auto_discovery_enabled = settings.auto_discovery_enabled
         model.discovery_frequency_hours = settings.discovery_frequency_hours
         model.max_postings_per_source_per_run = settings.max_postings_per_source_per_run
+        model.gmail_sync_frequency_minutes = settings.gmail_sync_frequency_minutes
         db.commit()
         db.refresh(model)
         return _to_domain(model)
@@ -65,6 +68,13 @@ class AppSettingsRepository:
             model.last_scheduled_run_at = last_scheduled_run_at
         if next_scheduled_run_at is not None:
             model.next_scheduled_run_at = next_scheduled_run_at
+        db.commit()
+        db.refresh(model)
+        return _to_domain(model)
+
+    def set_next_gmail_sync_at(self, db: Session, next_gmail_sync_at: datetime) -> AppSettings:
+        model = self._get_or_create_model(db)
+        model.next_gmail_sync_at = next_gmail_sync_at
         db.commit()
         db.refresh(model)
         return _to_domain(model)

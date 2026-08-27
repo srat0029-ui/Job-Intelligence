@@ -31,3 +31,10 @@ class AppSettings(BaseModel):
     )
     last_scheduled_run_at: datetime | None = None
     next_scheduled_run_at: datetime | None = None
+
+    gmail_sync_frequency_minutes: int = Field(
+        default=30,
+        ge=5,
+        description="How often the scheduler checks Gmail for new SEEK/LinkedIn alert emails.",
+    )
+    next_gmail_sync_at: datetime | None = None

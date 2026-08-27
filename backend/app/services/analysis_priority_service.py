@@ -41,9 +41,10 @@ STALE_POSTING_DAYS = 30
 def compute_analysis_priority(
     *,
     posting: RawJobPosting,
-    search_profile: SearchProfile,
+    search_profile: SearchProfile | None,
     watchlist_entry: CompanyWatchlistEntry | None = None,
     now: datetime | None = None,
+    candidate_preferred_locations: list[str] | None = None,
 ) -> float:
     now = now or datetime.now(UTC)
     score = 50.0
@@ -54,7 +55,12 @@ def compute_analysis_priority(
     if any(kw in title_lower for kw in EARLY_CAREER_KEYWORDS):
         score += 15.0
 
-    if search_profile.locations and posting.location:
+    # search_profile is None for email-alert postings (Part 7 - no
+    # SearchProfile at all for that path) - fall back to the candidate's
+    # own `preferences.preferred_locations`, in list order, as the priority
+    # ranking (Part 9: Melbourne/Victoria highest, then Hobart/Tasmania,
+    # then Sydney/NSW, then Brisbane/QLD).
+    if search_profile is not None and search_profile.locations and posting.location:
         location_norm = normalize_text(posting.location)
         priorities = search_profile.location_priority
         matched_priority_locations = [
@@ -64,6 +70,16 @@ def compute_analysis_priority(
             ranks = [priorities.get(loc, 99) for loc in matched_priority_locations]
             best_rank = min(ranks) if ranks else 99
             score += 20.0 if best_rank <= 1 else 12.0 if best_rank <= 3 else 6.0
+    elif search_profile is None and candidate_preferred_locations and posting.location:
+        location_norm = normalize_text(posting.location)
+        matched_ranks = [
+            rank
+            for rank, loc in enumerate(candidate_preferred_locations)
+            if normalize_text(loc) in location_norm
+        ]
+        if matched_ranks:
+            best_rank = min(matched_ranks)
+            score += 20.0 if best_rank == 0 else 12.0 if best_rank <= 2 else 6.0
 
     if posting.published_at is not None:
         age_days = (now - posting.published_at).days
@@ -78,11 +94,12 @@ def compute_analysis_priority(
     if watchlist_entry is not None:
         score += COMPANY_PRIORITY_BONUS.get(watchlist_entry.priority, 0.0)
 
-    relevant_keywords = [
-        kw for group in search_profile.all_keyword_groups() for kw in group.keywords
-    ]
-    if any(normalize_text(kw) in title_lower for kw in relevant_keywords):
-        score += 10.0
+    if search_profile is not None:
+        relevant_keywords = [
+            kw for group in search_profile.all_keyword_groups() for kw in group.keywords
+        ]
+        if any(normalize_text(kw) in title_lower for kw in relevant_keywords):
+            score += 10.0
 
     # --- Negative signals ---
     if any(kw in title_lower for kw in SENIOR_TITLE_KEYWORDS):

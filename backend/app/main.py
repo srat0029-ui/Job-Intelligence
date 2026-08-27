@@ -14,6 +14,7 @@ from app.api.routes import (
     company_watchlist,
     dashboard,
     discovery,
+    gmail,
     health,
     jobs,
 )
@@ -59,6 +60,7 @@ app.include_router(jobs.router)
 app.include_router(dashboard.router)
 app.include_router(settings_routes.router)
 app.include_router(discovery.router)
+app.include_router(gmail.router)
 app.include_router(company_watchlist.router)
 app.include_router(attention.router)
 app.include_router(application_workspaces.jobs_router)

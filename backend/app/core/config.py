@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     adzuna_app_key: str = Field(default="")
     adzuna_country: str = Field(default="au")
 
+    # Gmail OAuth (SEEK/LinkedIn job-alert ingestion) - server-side only.
+    # Raw httpx REST calls are used instead of google-api-python-client /
+    # google-auth-oauthlib (see app/services/gmail_auth_service.py) - this
+    # is a single-user app doing a handful of narrowly-scoped calls, not
+    # enough surface to justify the SDK weight.
+    google_oauth_client_id: str = Field(default="")
+    google_oauth_client_secret: str = Field(default="")
+    google_oauth_redirect_uri: str = Field(
+        default="http://localhost:8000/api/gmail/oauth/callback"
+    )
+    # Symmetric key (Fernet) used only to encrypt the stored Gmail refresh
+    # token at rest - generate with: python -c "from cryptography.fernet
+    # import Fernet; print(Fernet.generate_key().decode())"
+    secret_key: str = Field(default="")
+
 
 @lru_cache
 def get_settings() -> Settings:

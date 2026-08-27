@@ -42,6 +42,7 @@ from app.ai.providers.factory import get_llm_provider
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.repositories.app_settings_repository import AppSettingsRepository
+from app.repositories.gmail_credential_repository import GmailCredentialRepository
 from app.services.analysis_orchestrator import CandidateProfileMissingError
 from app.services.discovery_service import (
     DiscoveryAlreadyRunningError,
@@ -52,6 +53,7 @@ from app.services.discovery_service import (
 logger = get_logger(__name__)
 
 SCHEDULER_JOB_ID = "scheduled_discovery_check"
+GMAIL_SYNC_JOB_ID = "scheduled_gmail_sync_check"
 CHECK_INTERVAL_MINUTES = 15
 
 _scheduler: BackgroundScheduler | None = None
@@ -96,6 +98,46 @@ def run_scheduled_discovery_if_due() -> None:
         db.close()
 
 
+def run_scheduled_gmail_sync_if_due() -> None:
+    """The Gmail-alert counterpart of `run_scheduled_discovery_if_due` -
+    same "tick every 15 min, ask AppSettings if due, run" shape (Part 11:
+    reuse the existing scheduler pattern rather than building new
+    infrastructure). Gated on "is Gmail connected" rather than a separate
+    enable toggle - once connected, automatic sync is just how the app
+    behaves (Part 19: it should work by itself after the one-time setup)."""
+    db = SessionLocal()
+    try:
+        credential_repo = GmailCredentialRepository()
+        if credential_repo.get(db) is None:
+            return
+
+        settings_repo = AppSettingsRepository()
+        settings = settings_repo.get(db)
+
+        now = datetime.now(UTC)
+        next_run_at = settings.next_gmail_sync_at
+        if next_run_at is not None:
+            naive_now = now.replace(tzinfo=None)
+            naive_next_run_at = next_run_at.replace(tzinfo=None)
+            if naive_now < naive_next_run_at:
+                return
+
+        try:
+            service = DiscoveryService(llm_provider=get_llm_provider())
+            service.run(db, triggered_by="scheduled")
+            logger.info("scheduled_gmail_sync_completed")
+        except DiscoveryAlreadyRunningError:
+            logger.warning("scheduled_gmail_sync_skipped_already_running")
+        except (CandidateProfileMissingError, NoSearchProfilesError) as exc:
+            logger.warning("scheduled_gmail_sync_skipped", reason=str(exc))
+        finally:
+            settings_repo.set_next_gmail_sync_at(
+                db, now + timedelta(minutes=settings.gmail_sync_frequency_minutes)
+            )
+    finally:
+        db.close()
+
+
 def start_scheduler() -> BackgroundScheduler:
     global _scheduler
     if _scheduler is not None:
@@ -106,6 +148,17 @@ def start_scheduler() -> BackgroundScheduler:
         "interval",
         minutes=CHECK_INTERVAL_MINUTES,
         id=SCHEDULER_JOB_ID,
+        next_run_time=datetime.now(UTC),
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_scheduled_gmail_sync_if_due,
+        "interval",
+        minutes=CHECK_INTERVAL_MINUTES,
+        id=GMAIL_SYNC_JOB_ID,
+        # Fires once immediately on every app start - this alone delivers
+        # "sync on app start" (Part 11) with no separate startup hook.
         next_run_time=datetime.now(UTC),
         max_instances=1,
         coalesce=True,

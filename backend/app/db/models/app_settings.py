@@ -26,3 +26,6 @@ class AppSettingsModel(Base, UUIDPKMixin, TimestampMixin):
     max_postings_per_source_per_run: Mapped[int] = mapped_column(Integer, default=100)
     last_scheduled_run_at: Mapped[datetime | None] = mapped_column(nullable=True)
     next_scheduled_run_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    gmail_sync_frequency_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    next_gmail_sync_at: Mapped[datetime | None] = mapped_column(nullable=True)

@@ -46,7 +46,13 @@ export function SectionHeading({
   );
 }
 
-export function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
+export function EmptyState({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
       <p className="text-sm font-medium text-zinc-300">{title}</p>

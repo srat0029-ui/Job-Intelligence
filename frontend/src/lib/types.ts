@@ -476,12 +476,23 @@ export interface AppSettings {
   max_postings_per_source_per_run: number;
   last_scheduled_run_at?: string | null;
   next_scheduled_run_at?: string | null;
+  gmail_sync_frequency_minutes: number;
+  next_gmail_sync_at?: string | null;
 }
 
 export interface CostSummary {
   spent_today_usd: number;
   spent_all_time_usd: number;
   daily_budget_usd?: number | null;
+}
+
+export interface GmailStatus {
+  connected: boolean;
+  connected_email?: string | null;
+  connected_at?: string | null;
+  last_sync_at?: string | null;
+  last_sync_status?: string | null;
+  last_sync_message?: string | null;
 }
 
 // --- Company watchlist ---

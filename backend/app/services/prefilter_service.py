@@ -83,7 +83,7 @@ class PreFilterResult(BaseModel):
     reason: str | None = None
 
 
-def _contains_any(haystack: str, needles: list[str]) -> str | None:
+def contains_any(haystack: str, needles: list[str]) -> str | None:
     lowered = haystack.lower()
     for needle in needles:
         if needle.lower() in lowered:
@@ -96,8 +96,8 @@ def max_years_mentioned(text: str) -> int | None:
     return max(years) if years else None
 
 
-def _title_implies_senior(title: str) -> str | None:
-    return _contains_any(title, SENIOR_TITLE_KEYWORDS)
+def title_implies_senior(title: str) -> str | None:
+    return contains_any(title, SENIOR_TITLE_KEYWORDS)
 
 
 def _location_is_acceptable(posting: RawJobPosting, search_profile: SearchProfile) -> bool:
@@ -107,13 +107,13 @@ def _location_is_acceptable(posting: RawJobPosting, search_profile: SearchProfil
     haystack = f"{posting.location or ''} {posting.raw_description}".lower()
     if any(loc.lower() in haystack for loc in search_profile.locations):
         return True
-    if search_profile.include_remote and _contains_any(haystack, REMOTE_HINT_KEYWORDS):
+    if search_profile.include_remote and contains_any(haystack, REMOTE_HINT_KEYWORDS):
         return True
     return False
 
 
 def _work_rights_ok(posting: RawJobPosting, candidate: Candidate) -> tuple[bool, str | None]:
-    phrase = _contains_any(posting.raw_description, WORK_RIGHTS_REQUIRED_PHRASES)
+    phrase = contains_any(posting.raw_description, WORK_RIGHTS_REQUIRED_PHRASES)
     if phrase is None:
         return True, None
     declared = " ".join(candidate.preferences.work_rights).lower()
@@ -135,13 +135,13 @@ def evaluate_prefilter(
     title = posting.title or ""
     description = posting.raw_description or ""
 
-    excluded = _contains_any(title + " " + description, search_profile.excluded_keywords)
+    excluded = contains_any(title + " " + description, search_profile.excluded_keywords)
     if excluded:
         return PreFilterResult(
             passed=False, reason=f"Description/title contains excluded keyword '{excluded}'."
         )
 
-    excluded_job_type = _contains_any(title, candidate.preferences.excluded_job_types)
+    excluded_job_type = contains_any(title, candidate.preferences.excluded_job_types)
     if excluded_job_type:
         return PreFilterResult(
             passed=False,
@@ -151,7 +151,7 @@ def evaluate_prefilter(
     if search_profile.max_experience_level is not None:
         ceiling_rank = SENIORITY_RANK[search_profile.max_experience_level]
 
-        senior_keyword = _title_implies_senior(title)
+        senior_keyword = title_implies_senior(title)
         if senior_keyword and ceiling_rank < SENIOR_TITLE_MIN_RANK:
             return PreFilterResult(
                 passed=False,

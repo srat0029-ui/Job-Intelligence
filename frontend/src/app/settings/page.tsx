@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { Field, TextInput } from "@/components/form";
 import {
   Card,
@@ -11,8 +12,8 @@ import {
   Spinner,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import { categoryLabel, formatDateTime } from "@/lib/format";
-import type { AppSettings, CommunicationStyle, CostSummary } from "@/lib/types";
+import { categoryLabel, formatDateTime, formatRelativeTime } from "@/lib/format";
+import type { AppSettings, CommunicationStyle, CostSummary, GmailStatus } from "@/lib/types";
 
 interface SettingsInfo {
   environment: string;
@@ -23,6 +24,124 @@ interface SettingsInfo {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+/** Part 2/19 of the simplification brief: the primary one-time setup step
+ * - connect Gmail once so SEEK/LinkedIn job-alert emails become the main
+ * discovery source. Never shows or requests a password; the OAuth flow
+ * happens entirely server-side (see backend/app/api/routes/gmail.py). */
+function GmailConnectionCard() {
+  const searchParams = useSearchParams();
+  const [status, setStatus] = useState<GmailStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function load() {
+    try {
+      setStatus(await api.getGmailStatus());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: load Gmail connection status on mount
+    void load();
+  }, []);
+
+  const gmailError = searchParams.get("gmail_error");
+  const justConnected = searchParams.get("gmail_connected") === "1";
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      await api.disconnectGmail();
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Failed");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <SectionHeading title="Gmail connection" />
+      {gmailError && (
+        <ErrorBanner message={`Couldn't connect Gmail: ${decodeURIComponent(gmailError)}`} />
+      )}
+      {justConnected && !gmailError && (
+        <p className="mb-3 rounded-lg bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
+          Gmail connected. New SEEK/LinkedIn job alerts will be picked up automatically.
+        </p>
+      )}
+      {error && <ErrorBanner message={error} />}
+      {!status ? (
+        <Spinner />
+      ) : status.connected ? (
+        <div className="space-y-3">
+          <dl className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-xs text-zinc-500">Connected account</dt>
+              <dd className="text-zinc-200">{status.connected_email}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">Last checked</dt>
+              <dd className="text-zinc-200">{formatRelativeTime(status.last_sync_at)}</dd>
+            </div>
+          </dl>
+          {status.last_sync_status === "error" && status.last_sync_message && (
+            <p className="rounded-lg bg-rose-950/40 px-3 py-2 text-sm text-rose-300">
+              Last sync failed: {status.last_sync_message}
+            </p>
+          )}
+          {status.last_sync_status === "ok" && status.last_sync_message && (
+            <p className="text-xs text-zinc-500">{status.last_sync_message}</p>
+          )}
+          <SecondaryButton onClick={handleDisconnect} disabled={disconnecting}>
+            {disconnecting ? "Disconnecting..." : "Disconnect Gmail"}
+          </SecondaryButton>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-400">
+            Connect your Gmail account so Job Intelligence can automatically read your SEEK and
+            LinkedIn job-alert emails (read-only - nothing is ever marked read, archived, or
+            deleted).
+          </p>
+          <a href={api.gmailConnectUrl()}>
+            <PrimaryButton>Connect Gmail</PrimaryButton>
+          </a>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Part 20: SEEK/LinkedIn alerts must be created by the user themselves -
+ * this app never automates those sites. Pure static guidance, no backend. */
+function JobAlertSetupGuideCard() {
+  return (
+    <Card>
+      <SectionHeading title="Set up your job alerts" />
+      <p className="mb-3 text-sm text-zinc-400">
+        On SEEK and LinkedIn, create a small number of broad job alerts/saved searches covering
+        your target role families - Job Intelligence does the fine-grained ranking itself, so you
+        don&apos;t need dozens of narrow alerts.
+      </p>
+      <ul className="list-inside list-disc space-y-1 text-sm text-zinc-300">
+        <li>AI / Machine Learning</li>
+        <li>Data / Analytics</li>
+        <li>Software Engineering</li>
+        <li>Technology Graduate / Consulting</li>
+        <li>Cyber Security / Cloud / Systems</li>
+      </ul>
+      <p className="mt-3 text-xs text-zinc-500">
+        Set each alert&apos;s frequency to daily (or as often as SEEK/LinkedIn allow) - new jobs will
+        show up on Home automatically once Gmail is connected above.
+      </p>
+    </Card>
+  );
+}
 
 function CostControlsCard() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -334,6 +453,11 @@ export default function SettingsPage() {
           the browser. Cost controls below are live and editable.
         </p>
       </div>
+
+      <Suspense fallback={<Spinner />}>
+        <GmailConnectionCard />
+      </Suspense>
+      <JobAlertSetupGuideCard />
 
       {loading && <Spinner />}
       {error && <ErrorBanner message={error} />}
