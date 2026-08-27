@@ -172,6 +172,50 @@ def test_uncertain_similarity_is_a_false_negative_not_a_merge(db):
     assert match is None
 
 
+def test_seek_and_linkedin_alert_postings_for_the_same_role_are_fuzzy_duplicates(db):
+    """Two job-alert email sources (SEEK, LinkedIn) covering the same real
+    role - dedup is source-agnostic, so this must be caught exactly like
+    the Adzuna/Lever case above once both sides carry enough deterministic
+    signal (same company, near-identical description text)."""
+    seek_posting = _posting(
+        title="Graduate Software Engineer",
+        company="Acme Pty Ltd",
+        location="Melbourne VIC",
+        source_type=JobSourceType.SEEK,
+        external_id="111111",
+        source_url="https://www.seek.com.au/job/111111",
+        raw_description=(
+            "Join our engineering team building scalable web applications. You will work with "
+            "Python and React alongside senior engineers, with mentorship and code review built "
+            "into the graduate program from day one."
+        ),
+    )
+    _store(db, seek_posting)
+
+    linkedin_posting = _posting(
+        # Reworded relative to the SEEK listing (real postings are rarely
+        # byte-identical across sources) - just similar enough that this is
+        # caught by stage-3 fuzzy similarity, not an exact/fingerprint match.
+        title="2027 Graduate Program - Software Engineering",
+        company="Acme Pty Ltd",
+        location="Melbourne VIC",
+        source_type=JobSourceType.LINKEDIN,
+        external_id="222222",
+        source_url="https://www.linkedin.com/jobs/view/222222",
+        raw_description=(
+            "Join our engineering team building scalable web applications, working with Python "
+            "and React alongside senior engineers - mentorship and code review are built into "
+            "the graduate program from day one."
+        ),
+    )
+
+    assert deduplication_service.find_exact_or_fingerprint_duplicate(db, linkedin_posting) is None
+
+    match = deduplication_service.find_fuzzy_duplicate(db, linkedin_posting)
+    assert match is not None
+    assert match.confidence >= deduplication_service.AUTO_MERGE_THRESHOLD
+
+
 def test_fuzzy_search_is_bounded_by_company_and_date_window(db):
     """The candidate set must be bounded (never an unbounded table scan) -
     a same-titled job at the same company well outside the date window,

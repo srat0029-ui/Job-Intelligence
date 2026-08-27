@@ -21,6 +21,7 @@ from app.ingestion.gmail_client import GmailClient, GmailMessage
 from app.ingestion.job_source import JobSource, RawJobPosting
 from app.ingestion.linkedin_email_parser import parse_linkedin_alert_email
 from app.ingestion.seek_email_parser import parse_seek_alert_email
+from app.ingestion.seek_link_resolver import SeekLinkResolver
 from app.repositories.gmail_credential_repository import GmailCredentialRepository
 from app.repositories.processed_gmail_message_repository import ProcessedGmailMessageRepository
 from app.services.gmail_auth_service import GmailAuthService
@@ -68,6 +69,7 @@ class JobAlertEmailSource(JobSource):
         processed_message_repository: ProcessedGmailMessageRepository | None = None,
         auth_service: GmailAuthService | None = None,
         gmail_client_factory=None,
+        seek_resolver_factory=None,
     ) -> None:
         self._db = db
         self._credential_repository = credential_repository or GmailCredentialRepository()
@@ -75,10 +77,11 @@ class JobAlertEmailSource(JobSource):
             processed_message_repository or ProcessedGmailMessageRepository()
         )
         self._auth_service = auth_service or GmailAuthService()
-        # Testing seam - see tests/unit/test_job_alert_email_source.py.
+        # Testing seams - see tests/unit/test_job_alert_email_source.py.
         self._gmail_client_factory = gmail_client_factory or (
             lambda token: GmailClient(access_token=token)
         )
+        self._seek_resolver_factory = seek_resolver_factory or SeekLinkResolver
 
     def _get_access_token(self) -> str:
         credential = self._credential_repository.get(self._db)
@@ -116,47 +119,64 @@ class JobAlertEmailSource(JobSource):
         )
         postings: list[RawJobPosting] = []
 
-        for domains, source_type, parser in (
-            (SEEK_SENDER_DOMAINS, JobSourceType.SEEK, parse_seek_alert_email),
-            (LINKEDIN_SENDER_DOMAINS, JobSourceType.LINKEDIN, parse_linkedin_alert_email),
-        ):
-            try:
-                message_ids = client.search_message_ids(_gmail_query(domains, after=lookback))
-            except Exception as exc:  # noqa: BLE001 - one source's failure must not stop the other
-                logger.warning("gmail_search_failed", source=source_type.value, error=str(exc))
-                continue
-
-            for message_id in message_ids:
-                if self._processed_message_repository.is_processed(self._db, message_id):
-                    continue
+        # One resolver (and its cache) shared across every SEEK message in
+        # this sync - real SEEK job links are opaque ESP tracking redirects
+        # that must be followed to learn the destination job (see
+        # seek_link_resolver.py); sharing the cache means the same tracking
+        # URL (e.g. a duplicate title + "View job" link) is never resolved
+        # more than once per sync. LinkedIn links carry their own job id
+        # directly and never need this.
+        seek_resolver = self._seek_resolver_factory()
+        try:
+            for domains, source_type, parser in (
+                (
+                    SEEK_SENDER_DOMAINS,
+                    JobSourceType.SEEK,
+                    lambda html, **kw: parse_seek_alert_email(
+                        html, resolve_link=seek_resolver.resolve, **kw
+                    ),
+                ),
+                (LINKEDIN_SENDER_DOMAINS, JobSourceType.LINKEDIN, parse_linkedin_alert_email),
+            ):
                 try:
-                    message: GmailMessage = client.get_message(message_id)
-                except Exception as exc:  # noqa: BLE001 - one bad message must not stop the sync
-                    logger.warning(
-                        "gmail_fetch_message_failed", message_id=message_id, error=str(exc)
-                    )
+                    message_ids = client.search_message_ids(_gmail_query(domains, after=lookback))
+                except Exception as exc:  # noqa: BLE001 - one source's failure must not stop the other
+                    logger.warning("gmail_search_failed", source=source_type.value, error=str(exc))
                     continue
 
-                if not _sender_matches(message.sender, domains) or not message.html_body:
+                for message_id in message_ids:
+                    if self._processed_message_repository.is_processed(self._db, message_id):
+                        continue
+                    try:
+                        message: GmailMessage = client.get_message(message_id)
+                    except Exception as exc:  # noqa: BLE001 - one bad message must not stop the sync
+                        logger.warning(
+                            "gmail_fetch_message_failed", message_id=message_id, error=str(exc)
+                        )
+                        continue
+
+                    if not _sender_matches(message.sender, domains) or not message.html_body:
+                        self._processed_message_repository.mark_processed(
+                            self._db,
+                            gmail_message_id=message_id,
+                            source_type=source_type.value,
+                            jobs_extracted=0,
+                        )
+                        continue
+
+                    parsed = parser(
+                        message.html_body,
+                        message_id=message_id,
+                        received_at=message.received_at,
+                    )
+                    postings.extend(parsed)
                     self._processed_message_repository.mark_processed(
                         self._db,
                         gmail_message_id=message_id,
                         source_type=source_type.value,
-                        jobs_extracted=0,
+                        jobs_extracted=len(parsed),
                     )
-                    continue
-
-                parsed = parser(
-                    message.html_body,
-                    message_id=message_id,
-                    received_at=message.received_at,
-                )
-                postings.extend(parsed)
-                self._processed_message_repository.mark_processed(
-                    self._db,
-                    gmail_message_id=message_id,
-                    source_type=source_type.value,
-                    jobs_extracted=len(parsed),
-                )
+        finally:
+            seek_resolver.close()
 
         return postings

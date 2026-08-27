@@ -6,7 +6,15 @@ boilerplate phrases differ."""
 
 from __future__ import annotations
 
+import re
+
 from bs4 import Tag
+
+# Zero-width characters some real alert templates insert inside text (e.g.
+# SEEK's "Applied on 1​9​ ​Aug" date) - almost certainly a
+# scraper-deterrent, but it also breaks naive keyword matching downstream if
+# left in, so it's stripped as part of basic text hygiene.
+_ZERO_WIDTH_RE = re.compile(r"[​‌‍﻿]")
 
 
 def clean_lines(container: Tag) -> list[str]:
@@ -15,7 +23,7 @@ def clean_lines(container: Tag) -> list[str]:
     line is the company vs. the location vs. a snippet."""
     lines: list[str] = []
     for text in container.stripped_strings:
-        cleaned = text.strip()
+        cleaned = _ZERO_WIDTH_RE.sub("", text).strip()
         if not cleaned or cleaned in lines:
             continue
         lines.append(cleaned)
