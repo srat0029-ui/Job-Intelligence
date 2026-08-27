@@ -308,6 +308,7 @@ export interface FitScore {
   domain_fit: ScoreComponent;
   location_fit: ScoreComponent;
   work_rights_fit: ScoreComponent;
+  career_stage_fit?: ScoreComponent | null;
   reasoning: string;
 }
 

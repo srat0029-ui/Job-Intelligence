@@ -41,33 +41,75 @@ class RoleFamily(BaseModel):
 # graduate/junior/associate variants plus enough of the plain title (e.g.
 # "software engineer") that a genuinely early-career posting isn't missed
 # just because it didn't say "graduate" (Part 8: don't require the literal
-# word if the role is otherwise early-career).
+# word if the role is otherwise early-career). Broadened beyond exact
+# "Engineer"/"Scientist" title phrasing (real postings use "Forward
+# Deployed AI Scientist", "Applied Scientist", "Analyst", "Consultant" for
+# the same underlying work) - see relevance_service's own docstring/the
+# recommendation-quality review this was calibrated against.
 ROLE_FAMILIES: list[RoleFamily] = [
     RoleFamily(
         name="AI / Machine Learning",
         keywords=[
             "ai engineer",
+            "ai scientist",
+            "ai analyst",
+            "ai developer",
             "machine learning engineer",
+            "machine learning scientist",
             "ml engineer",
+            "ml scientist",
+            "applied scientist",
             "artificial intelligence",
             "machine learning",
             "nlp engineer",
             "computer vision",
+            "forward deployed ai",
+            "genai",
+            "generative ai",
+            "llm engineer",
+            "prompt engineer",
         ],
     ),
     RoleFamily(
-        name="Data",
+        name="Data Science",
         keywords=[
             "data scientist",
-            "data analyst",
-            "data engineer",
-            "data analytics",
-            "analytics analyst",
-            "business intelligence analyst",
+            "data science",
+            "quantitative researcher",
         ],
     ),
     RoleFamily(
-        name="Software",
+        name="Data Analytics",
+        keywords=[
+            "data analyst",
+            "data analytics",
+            "analytics analyst",
+            "analytics engineer",
+            "insights analyst",
+            "business intelligence analyst",
+            "bi analyst",
+        ],
+    ),
+    RoleFamily(
+        name="Data Engineering",
+        keywords=[
+            "data engineer",
+            "data engineering",
+            "analytics engineer",
+        ],
+    ),
+    RoleFamily(
+        name="Quant / Technical Analytics",
+        keywords=[
+            "quantitative analyst",
+            "quant analyst",
+            "quantitative developer",
+            "quantitative associate",
+            "quant developer",
+        ],
+    ),
+    RoleFamily(
+        name="Software Engineering",
         keywords=[
             "software engineer",
             "software developer",
@@ -75,8 +117,12 @@ ROLE_FAMILIES: list[RoleFamily] = [
             "full stack",
             "full-stack",
             "backend engineer",
+            "backend developer",
             "frontend engineer",
+            "frontend developer",
             "web developer",
+            "application developer",
+            "programmer",
         ],
     ),
     RoleFamily(
@@ -88,6 +134,8 @@ ROLE_FAMILIES: list[RoleFamily] = [
             "technology analyst",
             "technology graduate",
             "consulting analyst",
+            "solutions consultant",
+            "forward deployed",
         ],
     ),
     RoleFamily(
@@ -96,8 +144,10 @@ ROLE_FAMILIES: list[RoleFamily] = [
             "cyber security",
             "cybersecurity",
             "security analyst",
+            "security engineer",
             "soc analyst",
             "information security",
+            "penetration tester",
         ],
     ),
     RoleFamily(
@@ -106,6 +156,7 @@ ROLE_FAMILIES: list[RoleFamily] = [
             "cloud engineer",
             "systems engineer",
             "infrastructure engineer",
+            "platform engineer",
             "devops",
             "cloud",
             "site reliability",
@@ -113,6 +164,55 @@ ROLE_FAMILIES: list[RoleFamily] = [
             "architect",
         ],
     ),
+]
+
+# Explicit early-career signals (Part 1 of the recommendation-quality
+# review) - a title carrying one of these is strong evidence the role is
+# worth considering even when it doesn't match any ROLE_FAMILIES phrase
+# outright (a company-wide "Graduate Program"/"Graduate Campaign" rarely
+# says "Software Engineer" anywhere in its own title).
+EARLY_CAREER_INDICATORS = [
+    "graduate program",
+    "graduate campaign",
+    "graduate scheme",
+    "graduate",
+    "junior",
+    "associate",
+    "entry level",
+    "entry-level",
+    "early career",
+    "intern",
+    "internship",
+    "trainee",
+    "new grad",
+]
+
+# Generic technology/technical-stream signal, checked against the combined
+# title+description when an early-career indicator is present but no
+# specific ROLE_FAMILIES phrase matched - lets a broad "Graduate Analyst -
+# Technology" or "Technology Graduate Program" through without requiring
+# the exact role title, while still requiring *some* technical signal so a
+# graduate program in an unrelated stream (sales, finance, HR) isn't let
+# through on the word "graduate" alone.
+GENERIC_TECHNICAL_STREAM_KEYWORDS = [
+    "technology",
+    "tech stream",
+    "digital",
+    "data",
+    "software",
+    "cyber",
+    "security",
+    "artificial intelligence",
+    "machine learning",
+    "analytics",
+    "engineering",
+    "information technology",
+    "computer science",
+    "systems",
+    "cloud",
+    "quant",
+    "programming",
+    "developer",
 ]
 
 # Part 10's explicit examples of what should NOT appear - checked against
@@ -182,6 +282,22 @@ def evaluate_relevance(posting: RawJobPosting, candidate: Candidate) -> Relevanc
     family_from_title = _matched_role_family(title)
     family_from_either = family_from_title or _matched_role_family(combined)
 
+    # Generic graduate-program fallback (Part 1): a broad "Graduate
+    # Analyst - Technology" or "Technology Graduate Program" title rarely
+    # matches a specific ROLE_FAMILIES phrase (it doesn't say "Software
+    # Engineer" or "Data Scientist" anywhere), but is still worth
+    # considering when it carries both an explicit early-career signal AND
+    # some generic technical-stream signal. Never fires on "graduate" alone
+    # - a graduate program in an unrelated stream (sales, finance, HR) with
+    # no technical signal at all is correctly left unmatched.
+    graduate_program_match = False
+    if not family_from_either:
+        early_career_signal = contains_any(title, EARLY_CAREER_INDICATORS)
+        technical_stream_signal = contains_any(combined, GENERIC_TECHNICAL_STREAM_KEYWORDS)
+        if early_career_signal and technical_stream_signal:
+            graduate_program_match = True
+            family_from_either = "Technology Graduate Program"
+
     # 1. Seniority - reuse the existing detector, plus the email path's own
     # small additional keyword set, plus the conditional "architect" case.
     senior_keyword = title_implies_senior(posting.title or "") or contains_any(
@@ -215,6 +331,10 @@ def evaluate_relevance(posting: RawJobPosting, candidate: Candidate) -> Relevanc
 
     # 2. Explicit irrelevant-role rejection (title only, unless a role
     # family also matches the title - stay generous with adjacent roles).
+    # Deliberately NOT bypassed by the generic graduate-program fallback
+    # below: an explicitly irrelevant title (e.g. "Graduate Marketing
+    # Coordinator") must stay rejected even if the description happens to
+    # mention an incidental technical-sounding word ("digital marketing").
     irrelevant_keyword = contains_any(posting.title or "", IRRELEVANT_TITLE_KEYWORDS)
     if irrelevant_keyword and not family_from_title:
         return RelevanceResult(
@@ -231,6 +351,9 @@ def evaluate_relevance(posting: RawJobPosting, candidate: Candidate) -> Relevanc
     if family_from_title:
         score += 60.0
         reasons.append(f"title matches the {family_from_title} family")
+    elif graduate_program_match:
+        score += 40.0
+        reasons.append("early-career signal + technical stream (generic graduate program)")
     elif family_from_either:
         score += 35.0
         reasons.append(f"description matches the {family_from_either} family")

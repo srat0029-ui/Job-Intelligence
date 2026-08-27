@@ -33,11 +33,17 @@ class FitScore(BaseModel):
     domain_fit: ScoreComponent
     location_fit: ScoreComponent
     work_rights_fit: ScoreComponent
+    # Optional (not `| None` defaulting to a fallback ScoreComponent, unlike
+    # the others) so job_analyses rows saved before this component existed
+    # still round-trip through FitScore.model_validate without a migration -
+    # None simply means "not computed for this analysis", same as any other
+    # score component would mean before this field was added.
+    career_stage_fit: ScoreComponent | None = None
     reasoning: str  # short, deterministic, user-facing explanation of *why*
 
     @property
     def components(self) -> list[ScoreComponent]:
-        return [
+        base = [
             self.technical_fit,
             self.project_relevance_fit,
             self.education_fit,
@@ -46,3 +52,6 @@ class FitScore(BaseModel):
             self.location_fit,
             self.work_rights_fit,
         ]
+        if self.career_stage_fit is not None:
+            base.append(self.career_stage_fit)
+        return base

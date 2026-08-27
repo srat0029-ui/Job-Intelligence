@@ -27,7 +27,29 @@ _LOGIN_WALL_HINTS = [
     "log in to view",
     "please sign in",
     "log in to apply",
+    # LinkedIn's own unauthenticated redirect page for a jobs/view/<id> URL
+    # ("Sign in / We're signing you in / Discover people, jobs, and more")
+    # was slipping through this list entirely - every unauthenticated
+    # LinkedIn job link resolves here, so this one phrase alone was
+    # silently overwriting a real (if short) alert-email description with
+    # generic LinkedIn chrome for every single LinkedIn posting enriched.
+    "we're signing you in",
+    "discover people, jobs, and more",
 ]
+# A real job description doesn't rattle off LinkedIn's own footer nav - if
+# several of these appear together, the fetched page is LinkedIn chrome
+# (a login wall, home page, or footer), not the posting, regardless of
+# whether one of the phrases above happened to match.
+_SITE_CHROME_HINTS = [
+    "accessibility",
+    "user agreement",
+    "cookie policy",
+    "copyright policy",
+    "brand policy",
+    "guest controls",
+    "community guidelines",
+]
+MIN_SITE_CHROME_HINTS_FOR_BLOCK = 3
 
 
 def _mark_partial(posting: RawJobPosting) -> RawJobPosting:
@@ -65,7 +87,12 @@ def enrich_posting(posting: RawJobPosting, *, client: httpx.Client | None = None
 
     text = strip_html_for_research(response.text)
     lowered = text.lower()
-    if len(text) < MIN_ENRICHED_TEXT_LENGTH or any(hint in lowered for hint in _LOGIN_WALL_HINTS):
+    chrome_hint_count = sum(1 for hint in _SITE_CHROME_HINTS if hint in lowered)
+    if (
+        len(text) < MIN_ENRICHED_TEXT_LENGTH
+        or any(hint in lowered for hint in _LOGIN_WALL_HINTS)
+        or chrome_hint_count >= MIN_SITE_CHROME_HINTS_FOR_BLOCK
+    ):
         logger.info("job_page_enrichment_blocked_or_thin", url=posting.source_url)
         return _mark_partial(posting)
 

@@ -10,11 +10,33 @@ import re
 
 from bs4 import Tag
 
+from app.services.location_service import AU_CITIES, AU_STATE_ABBREVIATIONS, FOREIGN_CITIES
+
 # Zero-width characters some real alert templates insert inside text (e.g.
 # SEEK's "Applied on 1​9​ ​Aug" date) - almost certainly a
 # scraper-deterrent, but it also breaks naive keyword matching downstream if
 # left in, so it's stripped as part of basic text hygiene.
 _ZERO_WIDTH_RE = re.compile(r"[​‌‍﻿]")
+
+# A light "does this text plausibly name a place" signal - NOT geographic
+# classification (that stays exactly once, in location_service.normalize_
+# location; a parser only needs to know which extracted line to *hand* it,
+# never what country/eligibility it implies). Reuses location_service's own
+# AU/foreign reference data rather than a second hand-maintained list.
+_LOCATION_MARKER_RE = re.compile(r"\((?:hybrid|remote|onsite)\)|\bremote\b", re.IGNORECASE)
+_AU_STATE_WORD_RE = re.compile(r"\b(?:" + "|".join(AU_STATE_ABBREVIATIONS.values()) + r")\b")
+_KNOWN_CITY_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(c) for c in {**AU_CITIES, **FOREIGN_CITIES}) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_location(line: str) -> bool:
+    return bool(
+        _LOCATION_MARKER_RE.search(line)
+        or _AU_STATE_WORD_RE.search(line)
+        or _KNOWN_CITY_RE.search(line)
+    )
 
 
 def clean_lines(container: Tag) -> list[str]:
